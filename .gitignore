@@ -1,0 +1,30 @@
+# Build artifacts
+/target/
+*.o
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+Cargo.lock
+**/*.rs.bk
+
+# MicroVM artifacts
+*.qcow2
+*.img
+vmlinux
+bzImage
+
+# Logs
+*.log
+
+# Local config
+.ebpf-assist/
