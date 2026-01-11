@@ -3,6 +3,7 @@ members = [
     "crates/ebpf-assistd",
     "crates/ebpf-assist",
     "crates/ebpf-assist-common",
+    "crates/ebpf-assist-mcp",
 ]
 resolver = "2"
 

@@ -1,0 +1,27 @@
+[package]
+name = "ebpf-assist-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MCP server for ebpf-assist - enables AI assistants to work with eBPF"
+
+[[bin]]
+name = "ebpf-assist-mcp"
+path = "src/main.rs"
+
+[dependencies]
+ebpf-assist-common = { path = "../ebpf-assist-common" }
+
+# Async
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }

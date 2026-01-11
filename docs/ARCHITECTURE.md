@@ -28,7 +28,16 @@ ebpf-assist uses a two-layer security model to enable AI assistants to load eBPF
 ┌─────────────────────────────────────────────────────────────┐
 │                 Claude Code / AI Assistant                   │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ MCP protocol (Phase 3)
+                          │ MCP protocol (JSON-RPC 2.0 over stdio)
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 ebpf-assist-mcp (MCP Server)                 │
+│                                                              │
+│  Tools: ebpf_load, ebpf_unload, ebpf_attach, ebpf_detach,   │
+│         ebpf_list, ebpf_status, ebpf_unlock, ebpf_trigger,   │
+│         ebpf_trace                                           │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ Unix socket + JSON (same as CLI)
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    ebpf-assist CLI                           │
@@ -131,7 +140,7 @@ This enables the AI workflow:
 - [x] Phase 1: Daemon with capability control + CLI
 - [x] Phase 1.5: Test harness (trigger/output commands)
 - [x] Phase 2: Polkit integration for GUI authentication
-- [ ] Phase 3: MCP server for AI assistants
+- [x] Phase 3: MCP server for AI assistants
 - [ ] Phase 4: MicroVM isolation (optional)
 
 ## Polkit Integration
@@ -162,3 +171,72 @@ Polkit action IDs:
 - `org.ebpf-assist.manage` - General eBPF management
 - `org.ebpf-assist.load` - Loading programs
 - `org.ebpf-assist.attach` - Attaching to hooks
+
+## MCP Server (Phase 3)
+
+The MCP (Model Context Protocol) server enables AI assistants to interact with eBPF directly using JSON-RPC 2.0 over stdio.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Claude Code / AI Assistant                                  │
+│    ↓ JSON-RPC 2.0 over stdio                                │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ebpf-assist-mcp                                             │
+│                                                              │
+│  Protocol:                                                   │
+│    → initialize (returns capabilities)                       │
+│    → tools/list (returns 9 tools)                           │
+│    → tools/call (executes tool)                             │
+│                                                              │
+│  Tools:                                                      │
+│    → ebpf_load/unload/attach/detach (via daemon)            │
+│    → ebpf_list/status (via daemon)                          │
+│    → ebpf_unlock (via daemon)                               │
+│    → ebpf_trigger (via CLI binary)                          │
+│    → ebpf_trace (via CLI binary)                            │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ebpf-assistd (daemon)                                       │
+│    → Unix socket IPC                                        │
+│    → Same protocol as CLI                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Configuration
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ebpf-assist": {
+      "command": "/usr/local/bin/ebpf-assist-mcp"
+    }
+  }
+}
+```
+
+### Request Flow
+
+```
+1. AI sends initialize request
+         ↓
+2. MCP server returns capabilities and version
+         ↓
+3. AI requests tools/list
+         ↓
+4. MCP server returns available tools
+         ↓
+5. AI calls tool (e.g., ebpf_load)
+         ↓
+6. MCP server connects to daemon via Unix socket
+         ↓
+7. Daemon handles request (auth check, cap raise, etc.)
+         ↓
+8. MCP server returns result as tool content
+```

@@ -101,6 +101,7 @@ cargo build --release
 # Install binaries
 sudo cp target/release/ebpf-assistd /usr/local/bin/
 sudo cp target/release/ebpf-assist /usr/local/bin/
+sudo cp target/release/ebpf-assist-mcp /usr/local/bin/
 
 # Install systemd service (for per-user daemon with capabilities)
 sudo cp systemd/ebpf-assistd@.service /etc/systemd/system/
@@ -167,14 +168,60 @@ ebpf-assist trigger net ping 8.8.8.8
 sudo ebpf-assist output trace --lines 20 --timeout 10
 ```
 
+## MCP Server Configuration
+
+The MCP (Model Context Protocol) server enables AI assistants like Claude Code to directly manage eBPF programs.
+
+### Claude Code
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ebpf-assist": {
+      "command": "/usr/local/bin/ebpf-assist-mcp"
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `ebpf_load` | Load an eBPF program from an object file |
+| `ebpf_unload` | Unload a program by ID |
+| `ebpf_attach` | Attach to kprobe, tracepoint, or XDP interface |
+| `ebpf_detach` | Detach from kernel hook |
+| `ebpf_list` | List all loaded programs |
+| `ebpf_status` | Get daemon status |
+| `ebpf_unlock` | Authenticate with polkit (triggers GUI prompt) |
+| `ebpf_trigger` | Generate kernel activity for testing |
+| `ebpf_trace` | Read bpf_printk output from trace_pipe |
+
+### Example MCP Workflow
+
+```
+User: Create a kprobe that logs every openat syscall
+
+Claude: I'll create an eBPF program to trace openat syscalls.
+        [Creates openat_trace.c with bpf_printk]
+        [Compiles with clang]
+        [Calls ebpf_load with path to .o file]
+        [Calls ebpf_attach with target "do_sys_openat2"]
+        [Calls ebpf_trigger to test with fs create]
+        [Calls ebpf_trace to show bpf_printk output]
+```
+
 ## Status
 
-**Phase 2 complete** - Polkit authentication integrated. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
+**Phase 3 complete** - MCP server ready for AI assistants. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
 
 - [x] Phase 1: Daemon with capability control + CLI
 - [x] Phase 1.5: Test harness for triggering kernel activity
 - [x] Phase 2: Polkit integration for GUI authentication
-- [ ] Phase 3: MCP server for AI assistants
+- [x] Phase 3: MCP server for AI assistants
 - [ ] Phase 4: MicroVM isolation (optional)
 
 ## License
