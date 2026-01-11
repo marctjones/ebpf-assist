@@ -123,6 +123,7 @@ sudo ./target/release/ebpf-assistd
 
 ## CLI Commands
 
+### Program Management (requires daemon)
 ```bash
 ebpf-assist load <path>           # Load eBPF program
 ebpf-assist unload <id>           # Unload program by ID
@@ -133,11 +134,38 @@ ebpf-assist status                # Show daemon status
 ebpf-assist ping                  # Check if daemon is running
 ```
 
+### Test Harness (no daemon needed)
+```bash
+# Trigger syscalls for kprobe/tracepoint testing
+ebpf-assist trigger syscall openat /etc/passwd
+ebpf-assist trigger syscall execve /bin/ls -la
+ebpf-assist trigger syscall connect 127.0.0.1:80
+
+# Trigger filesystem activity
+ebpf-assist trigger fs create /tmp/test.txt
+ebpf-assist trigger fs rename /tmp/a.txt /tmp/b.txt
+ebpf-assist trigger fs chmod /tmp/test.txt 755
+
+# Trigger process activity
+ebpf-assist trigger proc exec /bin/echo hello
+ebpf-assist trigger proc fork
+
+# Trigger network activity
+ebpf-assist trigger net tcp-connect 10.0.0.1:80
+ebpf-assist trigger net udp-send 10.0.0.1:53 "query"
+ebpf-assist trigger net dns google.com
+ebpf-assist trigger net ping 8.8.8.8
+
+# Read eBPF output (requires root for trace_pipe)
+sudo ebpf-assist output trace --lines 20 --timeout 10
+```
+
 ## Status
 
-**Phase 1 complete** - Basic daemon and CLI working. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
+**Phase 1.5 complete** - Daemon, CLI, and test harness working. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
 
 - [x] Phase 1: Daemon with capability control + CLI
+- [x] Phase 1.5: Test harness for triggering kernel activity
 - [ ] Phase 2: Polkit integration for GUI authentication
 - [ ] Phase 3: MCP server for AI assistants
 - [ ] Phase 4: MicroVM isolation (optional)
