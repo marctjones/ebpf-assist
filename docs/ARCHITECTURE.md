@@ -32,6 +32,13 @@ ebpf-assist uses a two-layer security model to enable AI assistants to load eBPF
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    ebpf-assist CLI                           │
+│                                                              │
+│  ┌────────────────────────┐  ┌────────────────────────────┐ │
+│  │ Program Management     │  │ Test Harness               │ │
+│  │ load, unload, attach   │  │ trigger syscall/fs/proc/net│ │
+│  │ detach, list, status   │  │ output trace/map           │ │
+│  │ (requires daemon)      │  │ (standalone, no daemon)    │ │
+│  └────────────────────────┘  └────────────────────────────┘ │
 └─────────────────────────┬───────────────────────────────────┘
                           │ Unix socket + JSON
                           ▼
@@ -93,10 +100,36 @@ ebpf-assist uses a two-layer security model to enable AI assistants to load eBPF
 | Host | `ebpf-assist load prog.o` | Fast iteration |
 | Isolated | `ebpf-assist load --isolate prog.o` | Safe testing (Phase 4) |
 
+## Test Harness
+
+The CLI includes standalone tools for testing eBPF programs (no daemon required):
+
+```
+ebpf-assist trigger syscall openat /etc/passwd   # Trigger syscall
+ebpf-assist trigger fs create /tmp/test          # Filesystem activity
+ebpf-assist trigger proc exec /bin/ls            # Process activity
+ebpf-assist trigger net tcp-connect 10.0.0.1:80  # Network activity
+ebpf-assist output trace                         # Read bpf_printk output
+```
+
+This enables the AI workflow:
+1. Write eBPF program
+2. Load and attach via daemon
+3. Trigger activity with CLI
+4. Read output to verify behavior
+
 ## Design Decisions
 
 1. **No containers** - Host or MicroVM only
 2. **aya over libbpf-rs** - Pure Rust, easier install
 3. **Two-layer security** - Polkit + per-op capabilities
 4. **Native polkit UI** - No custom auth dialogs
+5. **Standalone test harness** - Trigger commands work without daemon
 
+## Implementation Status
+
+- [x] Phase 1: Daemon with capability control + CLI
+- [x] Phase 1.5: Test harness (trigger/output commands)
+- [ ] Phase 2: Polkit integration for GUI authentication
+- [ ] Phase 3: MCP server for AI assistants
+- [ ] Phase 4: MicroVM isolation (optional)
