@@ -64,6 +64,15 @@ enum Commands {
     /// Check if daemon is running
     Ping,
 
+    /// Authenticate with polkit (triggers GUI prompt, caches for 15 min)
+    Unlock,
+
+    /// Clear authentication cache (require re-auth on next operation)
+    Lock,
+
+    /// Check authentication status
+    Auth,
+
     /// Trigger kernel activity for testing eBPF programs
     #[command(subcommand)]
     Trigger(TriggerCommands),
@@ -162,6 +171,9 @@ async fn main() -> Result<()> {
         Commands::List => commands::list().await,
         Commands::Status => commands::status().await,
         Commands::Ping => commands::ping().await,
+        Commands::Unlock => commands::unlock().await,
+        Commands::Lock => commands::lock().await,
+        Commands::Auth => commands::auth_status().await,
         Commands::Trigger(cmd) => trigger::run(cmd).await,
         Commands::Output(cmd) => trigger::output(cmd).await,
     }

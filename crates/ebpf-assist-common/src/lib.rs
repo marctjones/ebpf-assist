@@ -72,6 +72,15 @@ pub enum Request {
 
     /// Ping to check if daemon is alive.
     Ping,
+
+    /// Request authorization (triggers GUI prompt if needed).
+    Unlock,
+
+    /// Clear authorization cache (require re-auth on next operation).
+    Lock,
+
+    /// Check authorization status without triggering prompt.
+    AuthStatus,
 }
 
 /// Response from daemon to CLI.
@@ -117,6 +126,20 @@ pub enum Response {
     /// Pong response.
     Pong,
 
+    /// Authorization successful.
+    Unlocked,
+
+    /// Authorization cleared.
+    Locked,
+
+    /// Authorization status.
+    AuthStatusResult {
+        /// Whether the user is currently authorized.
+        authorized: bool,
+        /// Seconds until authorization expires (0 if not authorized).
+        expires_in_secs: u64,
+    },
+
     /// Error response.
     Error {
         message: String,
@@ -146,6 +169,10 @@ pub enum ErrorCode {
     Internal,
     /// Capability error.
     CapabilityError,
+    /// Authorization required (needs unlock).
+    AuthRequired,
+    /// Authorization denied by polkit.
+    AuthDenied,
 }
 
 /// Default socket path for the daemon.

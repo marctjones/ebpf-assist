@@ -36,3 +36,9 @@ anyhow = { workspace = true }
 # Unix socket
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1"
+
+# D-Bus for polkit
+zbus = "4"
+
+# System calls
+libc = "0.2"

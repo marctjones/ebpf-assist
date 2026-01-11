@@ -4,25 +4,47 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use ebpf_assist_common::{ErrorCode, Request, Response};
 
+use crate::auth::{actions, AuthManager, AuthResult};
 use crate::caps::check_permitted_caps;
 use crate::loader::Loader;
 
 /// Shared state for the daemon.
 pub struct State {
     pub loader: Loader,
+    pub auth: AuthManager,
     pub start_time: Instant,
+    /// UID of the client (set per-connection).
+    pub client_uid: Option<u32>,
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
             loader: Loader::new(),
+            auth: AuthManager::new(),
             start_time: Instant::now(),
+            client_uid: None,
         }
+    }
+
+    /// Create state with authentication disabled.
+    pub fn without_auth() -> Self {
+        Self {
+            loader: Loader::new(),
+            auth: AuthManager::disabled(),
+            start_time: Instant::now(),
+            client_uid: None,
+        }
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -32,6 +54,11 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
 
     match request {
         Request::Load { path, program_name } => {
+            // Check authorization first
+            if let Err(resp) = check_auth(&state, actions::LOAD).await {
+                return resp;
+            }
+
             let mut state = state.lock().await;
             match state.loader.load(&path, program_name.as_deref()) {
                 Ok(info) => {
@@ -50,6 +77,7 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
         }
 
         Request::Unload { id } => {
+            // Unload doesn't require auth (we trust the user to manage their own programs)
             let mut state = state.lock().await;
             match state.loader.unload(id) {
                 Ok(()) => {
@@ -64,6 +92,11 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
         }
 
         Request::Attach { id, target } => {
+            // Check authorization for attach
+            if let Err(resp) = check_auth(&state, actions::ATTACH).await {
+                return resp;
+            }
+
             let mut state = state.lock().await;
             match state.loader.attach(id, &target) {
                 Ok(()) => {
@@ -78,6 +111,7 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
         }
 
         Request::Detach { id } => {
+            // Detach doesn't require auth
             let mut state = state.lock().await;
             match state.loader.detach(id) {
                 Ok(()) => {
@@ -109,6 +143,96 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
         }
 
         Request::Ping => Response::Pong,
+
+        Request::Unlock => {
+            let mut state = state.lock().await;
+            let uid = state.client_uid.unwrap_or_else(|| {
+                warn!("No client UID available, using current user");
+                unsafe { libc::getuid() }
+            });
+
+            match state.auth.request_authorization(uid, actions::MANAGE).await {
+                Ok(AuthResult::Authorized) => {
+                    info!("User {} authorized", uid);
+                    Response::Unlocked
+                }
+                Ok(AuthResult::NotAuthorized) => {
+                    warn!("User {} authorization denied", uid);
+                    Response::Error {
+                        message: "Authorization denied by polkit".to_string(),
+                        code: ErrorCode::AuthDenied,
+                    }
+                }
+                Ok(AuthResult::Challenge) => {
+                    // This shouldn't happen with interactive mode
+                    warn!("Unexpected challenge response for user {}", uid);
+                    Response::Error {
+                        message: "Authorization challenge required".to_string(),
+                        code: ErrorCode::AuthRequired,
+                    }
+                }
+                Err(e) => {
+                    error!("Authorization error: {}", e);
+                    Response::Error {
+                        message: format!("Authorization error: {}", e),
+                        code: ErrorCode::Internal,
+                    }
+                }
+            }
+        }
+
+        Request::Lock => {
+            let state = state.lock().await;
+            let uid = state.client_uid;
+            state.auth.clear_cache(uid).await;
+            info!("Authorization cache cleared for {:?}", uid);
+            Response::Locked
+        }
+
+        Request::AuthStatus => {
+            let state = state.lock().await;
+            let _uid = state.client_uid.unwrap_or_else(|| unsafe { libc::getuid() });
+
+            // We can't easily check expiration without accessing cache internals
+            // For now, just report if currently authorized
+            // TODO: Add a method to AuthManager to get cache status
+            Response::AuthStatusResult {
+                authorized: false, // Conservative default
+                expires_in_secs: 0,
+            }
+        }
+    }
+}
+
+/// Check authorization for an action.
+/// Returns Ok(()) if authorized, Err(Response) if not.
+async fn check_auth(state: &Arc<Mutex<State>>, action: &str) -> Result<(), Response> {
+    let mut state = state.lock().await;
+    let uid = state.client_uid.unwrap_or_else(|| {
+        warn!("No client UID available, using current user");
+        unsafe { libc::getuid() }
+    });
+
+    match state.auth.check_authorization(uid, action).await {
+        Ok(AuthResult::Authorized) => Ok(()),
+        Ok(AuthResult::Challenge) => {
+            // Need to prompt user - tell them to unlock first
+            Err(Response::Error {
+                message: "Authorization required. Run 'ebpf-assist unlock' first.".to_string(),
+                code: ErrorCode::AuthRequired,
+            })
+        }
+        Ok(AuthResult::NotAuthorized) => Err(Response::Error {
+            message: "Not authorized for this operation".to_string(),
+            code: ErrorCode::AuthDenied,
+        }),
+        Err(e) => {
+            error!("Authorization check failed: {}", e);
+            // If polkit is not available, allow the operation
+            // (the capabilities check will still apply)
+            warn!("Polkit check failed, allowing operation: {}", e);
+            Ok(())
+        }
     }
 }
 

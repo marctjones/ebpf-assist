@@ -185,3 +185,65 @@ pub async fn ping() -> Result<()> {
         _ => bail!("Unexpected response from daemon"),
     }
 }
+
+/// Request authorization (triggers GUI prompt).
+pub async fn unlock() -> Result<()> {
+    let mut client = Client::connect().await?;
+
+    println!("Requesting authorization...");
+    let response = client.request(Request::Unlock).await?;
+
+    match response {
+        Response::Unlocked => {
+            println!("Authorization granted (cached for 15 minutes)");
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            bail!("[{:?}] {}", code, message);
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}
+
+/// Clear authorization cache.
+pub async fn lock() -> Result<()> {
+    let mut client = Client::connect().await?;
+
+    let response = client.request(Request::Lock).await?;
+
+    match response {
+        Response::Locked => {
+            println!("Authorization cache cleared");
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            bail!("[{:?}] {}", code, message);
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}
+
+/// Check authorization status.
+pub async fn auth_status() -> Result<()> {
+    let mut client = Client::connect().await?;
+
+    let response = client.request(Request::AuthStatus).await?;
+
+    match response {
+        Response::AuthStatusResult {
+            authorized,
+            expires_in_secs,
+        } => {
+            if authorized {
+                println!("Authorized (expires in {} seconds)", expires_in_secs);
+            } else {
+                println!("Not authorized. Run 'ebpf-assist unlock' to authenticate.");
+            }
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            bail!("[{:?}] {}", code, message);
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}

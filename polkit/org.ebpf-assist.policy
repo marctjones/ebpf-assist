@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>ebpf-assist</vendor>
+  <vendor_url>https://github.com/marctjones/ebpf-assist</vendor_url>
+
+  <!-- Main action for eBPF operations -->
+  <action id="org.ebpf-assist.manage">
+    <description>Manage eBPF programs</description>
+    <message>Authentication is required to load, attach, or manage eBPF programs</message>
+    <icon_name>application-x-executable</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.imply">org.ebpf-assist.load org.ebpf-assist.attach</annotate>
+  </action>
+
+  <!-- Specific action for loading eBPF programs -->
+  <action id="org.ebpf-assist.load">
+    <description>Load eBPF programs</description>
+    <message>Authentication is required to load eBPF programs into the kernel</message>
+    <icon_name>application-x-executable</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <!-- Specific action for attaching eBPF programs -->
+  <action id="org.ebpf-assist.attach">
+    <description>Attach eBPF programs</description>
+    <message>Authentication is required to attach eBPF programs to kernel hooks</message>
+    <icon_name>application-x-executable</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+</policyconfig>

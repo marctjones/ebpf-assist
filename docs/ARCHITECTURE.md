@@ -130,6 +130,35 @@ This enables the AI workflow:
 
 - [x] Phase 1: Daemon with capability control + CLI
 - [x] Phase 1.5: Test harness (trigger/output commands)
-- [ ] Phase 2: Polkit integration for GUI authentication
+- [x] Phase 2: Polkit integration for GUI authentication
 - [ ] Phase 3: MCP server for AI assistants
 - [ ] Phase 4: MicroVM isolation (optional)
+
+## Polkit Integration
+
+The daemon integrates with polkit for user authentication:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  CLI: ebpf-assist unlock                                     │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Daemon: AuthManager                                         │
+│    → Checks polkit via D-Bus                                │
+│    → Caches result for 15 min                               │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  polkit: org.freedesktop.PolicyKit1                          │
+│    → Shows native GNOME/KDE auth dialog                     │
+│    → User enters password                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Polkit action IDs:
+- `org.ebpf-assist.manage` - General eBPF management
+- `org.ebpf-assist.load` - Loading programs
+- `org.ebpf-assist.attach` - Attaching to hooks

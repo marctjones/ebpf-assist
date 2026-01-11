@@ -1,5 +1,6 @@
 //! ebpf-assistd - Daemon for loading eBPF programs with minimal privileges.
 
+mod auth;
 mod caps;
 mod handler;
 mod loader;

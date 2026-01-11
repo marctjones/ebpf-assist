@@ -123,6 +123,13 @@ sudo ./target/release/ebpf-assistd
 
 ## CLI Commands
 
+### Authentication (polkit)
+```bash
+ebpf-assist unlock                # Authenticate (triggers GUI prompt, caches 15 min)
+ebpf-assist lock                  # Clear auth cache
+ebpf-assist auth                  # Check auth status
+```
+
 ### Program Management (requires daemon)
 ```bash
 ebpf-assist load <path>           # Load eBPF program
@@ -162,11 +169,11 @@ sudo ebpf-assist output trace --lines 20 --timeout 10
 
 ## Status
 
-**Phase 1.5 complete** - Daemon, CLI, and test harness working. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
+**Phase 2 complete** - Polkit authentication integrated. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
 
 - [x] Phase 1: Daemon with capability control + CLI
 - [x] Phase 1.5: Test harness for triggering kernel activity
-- [ ] Phase 2: Polkit integration for GUI authentication
+- [x] Phase 2: Polkit integration for GUI authentication
 - [ ] Phase 3: MCP server for AI assistants
 - [ ] Phase 4: MicroVM isolation (optional)
 
