@@ -1,0 +1,40 @@
+[Unit]
+Description=eBPF Assist Daemon
+Documentation=https://github.com/marctjones/ebpf-assist
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ebpf-assistd
+
+# Run as the user who started the service
+User=%i
+Group=%i
+
+# Capability configuration - keep in permitted set, not effective
+# The daemon will raise these only when needed
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=no
+LockPersonality=yes
+
+# Allow access to /sys/kernel/debug for some eBPF operations
+ReadWritePaths=/sys/kernel/debug
+
+# Allow runtime directory for socket
+RuntimeDirectory=ebpf-assist
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=default.target

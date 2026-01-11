@@ -1,0 +1,20 @@
+[package]
+name = "ebpf-assist"
+version = "0.1.0"
+edition = "2021"
+description = "CLI for managing eBPF programs via ebpf-assistd"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "ebpf-assist"
+path = "src/main.rs"
+
+[dependencies]
+ebpf-assist-common = { path = "../ebpf-assist-common" }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"

@@ -90,10 +90,58 @@ ebpf-assist is part of a family of tools solving "AI assistants need privileged 
 - **ebpf-assist** - eBPF/kernel operations (this project)
 - More coming...
 
+## Installation
+
+### From Source
+
+```bash
+# Build
+cargo build --release
+
+# Install binaries
+sudo cp target/release/ebpf-assistd /usr/local/bin/
+sudo cp target/release/ebpf-assist /usr/local/bin/
+
+# Install systemd service (for per-user daemon with capabilities)
+sudo cp systemd/ebpf-assistd@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Enable for your user
+sudo systemctl enable --now ebpf-assistd@$USER
+```
+
+### Running Manually (for development)
+
+```bash
+# Run daemon (needs CAP_BPF, CAP_PERFMON, CAP_NET_ADMIN)
+sudo setcap cap_bpf,cap_perfmon,cap_net_admin=p target/release/ebpf-assistd
+./target/release/ebpf-assistd
+
+# Or with sudo (not recommended for production)
+sudo ./target/release/ebpf-assistd
+```
+
+## CLI Commands
+
+```bash
+ebpf-assist load <path>           # Load eBPF program
+ebpf-assist unload <id>           # Unload program by ID
+ebpf-assist attach <id> <target>  # Attach to kprobe/tracepoint/interface
+ebpf-assist detach <id>           # Detach from target
+ebpf-assist list                  # List all loaded programs
+ebpf-assist status                # Show daemon status
+ebpf-assist ping                  # Check if daemon is running
+```
+
 ## Status
 
-**Early design phase** - See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap and design decisions.
+**Phase 1 complete** - Basic daemon and CLI working. See [Issues](https://github.com/marctjones/ebpf-assist/issues) for roadmap.
+
+- [x] Phase 1: Daemon with capability control + CLI
+- [ ] Phase 2: Polkit integration for GUI authentication
+- [ ] Phase 3: MCP server for AI assistants
+- [ ] Phase 4: MicroVM isolation (optional)
 
 ## License
 
-TBD
+MIT OR Apache-2.0

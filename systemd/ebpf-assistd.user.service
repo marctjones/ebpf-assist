@@ -1,0 +1,18 @@
+[Unit]
+Description=eBPF Assist Daemon (User Service)
+Documentation=https://github.com/marctjones/ebpf-assist
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/ebpf-assistd
+
+# Note: User services cannot set AmbientCapabilities
+# The daemon must be started with capabilities already available
+# Use a system service with @.service template for capability support
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
