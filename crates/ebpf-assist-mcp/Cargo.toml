@@ -3,7 +3,11 @@ name = "ebpf-assist-mcp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "MCP server for ebpf-assist - enables AI assistants to work with eBPF"
+readme = "../../README.md"
+keywords = ["ebpf", "bpf", "mcp", "ai", "claude"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "ebpf-assist-mcp"

@@ -4,6 +4,8 @@ members = [
     "crates/ebpf-assist",
     "crates/ebpf-assist-common",
     "crates/ebpf-assist-mcp",
+    "crates/ebpf-assist-vm",
+    "crates/ebpf-assist-agent",
 ]
 resolver = "2"
 
@@ -37,3 +39,6 @@ anyhow = "1"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+
+# Testing
+tempfile = "3"

@@ -198,7 +198,9 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
 
         Request::AuthStatus => {
             let state = state.lock().await;
-            let _uid = state.client_uid.unwrap_or_else(|| unsafe { libc::getuid() });
+            let _uid = state
+                .client_uid
+                .unwrap_or_else(|| unsafe { libc::getuid() });
 
             // We can't easily check expiration without accessing cache internals
             // For now, just report if currently authorized
@@ -237,7 +239,12 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
             }
         }
 
-        Request::MapWrite { id, map_name, key, value } => {
+        Request::MapWrite {
+            id,
+            map_name,
+            key,
+            value,
+        } => {
             // Map writes could be considered privileged operations
             // For now, allow without auth since the program was already loaded with auth
             let mut state = state.lock().await;

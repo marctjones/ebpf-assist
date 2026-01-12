@@ -21,7 +21,9 @@ pub async fn run(cmd: TriggerCommands) -> Result<()> {
         TriggerCommands::Syscall { name, args } => trigger_syscall(&name, &args),
         TriggerCommands::Fs { op, paths } => trigger_fs(&op, &paths),
         TriggerCommands::Proc { op, args } => trigger_proc(&op, &args),
-        TriggerCommands::Net { op, target, data } => trigger_net(&op, &target, data.as_deref()).await,
+        TriggerCommands::Net { op, target, data } => {
+            trigger_net(&op, &target, data.as_deref()).await
+        }
     }
 }
 
@@ -36,7 +38,10 @@ pub async fn output(cmd: OutputCommands) -> Result<()> {
 fn trigger_syscall(name: &str, args: &[String]) -> Result<()> {
     match name {
         "openat" | "open" => {
-            let path = args.first().map(|s| s.as_str()).unwrap_or("/tmp/ebpf-assist-test");
+            let path = args
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("/tmp/ebpf-assist-test");
             println!("Triggering openat: {}", path);
             let _ = File::open(path);
             println!("  Done (file may or may not exist)");
@@ -54,7 +59,10 @@ fn trigger_syscall(name: &str, args: &[String]) -> Result<()> {
         }
 
         "write" => {
-            let path = args.first().map(|s| s.as_str()).unwrap_or("/tmp/ebpf-assist-test-write");
+            let path = args
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("/tmp/ebpf-assist-test-write");
             let data = args.get(1).map(|s| s.as_str()).unwrap_or("test data");
             println!("Triggering write: {} <- {:?}", path, data);
             let mut file = File::create(path).context("Failed to create file for writing")?;
@@ -120,7 +128,10 @@ fn trigger_syscall(name: &str, args: &[String]) -> Result<()> {
 fn trigger_fs(op: &str, paths: &[String]) -> Result<()> {
     match op {
         "create" => {
-            let path = paths.first().map(|s| s.as_str()).unwrap_or("/tmp/ebpf-assist-test-create");
+            let path = paths
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("/tmp/ebpf-assist-test-create");
             println!("Creating file: {}", path);
             File::create(path)?;
             println!("  Done");
@@ -191,7 +202,10 @@ fn trigger_fs(op: &str, paths: &[String]) -> Result<()> {
 
         "append" => {
             let path = paths.first().context("Path required for append")?;
-            let data = paths.get(1).map(|s| s.as_str()).unwrap_or("appended data\n");
+            let data = paths
+                .get(1)
+                .map(|s| s.as_str())
+                .unwrap_or("appended data\n");
             println!("Appending to file: {}", path);
             let mut file = OpenOptions::new().append(true).create(true).open(path)?;
             file.write_all(data.as_bytes())?;
@@ -251,15 +265,16 @@ fn trigger_proc(op: &str, args: &[String]) -> Result<()> {
         "sleep" => {
             let secs: u64 = args.first().map(|s| s.parse().unwrap_or(1)).unwrap_or(1);
             println!("Spawning sleep process for {} seconds", secs);
-            Command::new("/bin/sleep")
-                .arg(secs.to_string())
-                .status()?;
+            Command::new("/bin/sleep").arg(secs.to_string()).status()?;
             println!("  Done");
             Ok(())
         }
 
         _ => {
-            bail!("Unknown proc operation: {}. Supported: fork, exec, exit, sleep", op);
+            bail!(
+                "Unknown proc operation: {}. Supported: fork, exec, exit, sleep",
+                op
+            );
         }
     }
 }
@@ -353,7 +368,10 @@ async fn trigger_net(op: &str, target: &str, data: Option<&str>) -> Result<()> {
             ) {
                 Ok(mut stream) => {
                     let host = host_port.split(':').next().unwrap_or(host_port);
-                    let request = format!("GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", host);
+                    let request = format!(
+                        "GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                        host
+                    );
                     stream.write_all(request.as_bytes())?;
                     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
 
@@ -371,7 +389,10 @@ async fn trigger_net(op: &str, target: &str, data: Option<&str>) -> Result<()> {
         }
 
         _ => {
-            bail!("Unknown net operation: {}. Supported: tcp-connect, udp-send, ping, dns, http-get", op);
+            bail!(
+                "Unknown net operation: {}. Supported: tcp-connect, udp-send, ping, dns, http-get",
+                op
+            );
         }
     }
 }
@@ -388,8 +409,15 @@ fn read_trace_pipe(max_lines: usize, timeout_secs: u64) -> Result<()> {
         );
     }
 
-    println!("Reading from trace_pipe (timeout: {}s, max lines: {})...",
-             timeout_secs, if max_lines == 0 { "unlimited".to_string() } else { max_lines.to_string() });
+    println!(
+        "Reading from trace_pipe (timeout: {}s, max lines: {})...",
+        timeout_secs,
+        if max_lines == 0 {
+            "unlimited".to_string()
+        } else {
+            max_lines.to_string()
+        }
+    );
     println!("---");
 
     let file = File::open(trace_pipe).context(

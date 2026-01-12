@@ -91,7 +91,10 @@ impl AuthManager {
             let cache = self.cache.read().await;
             if let Some(entry) = cache.get(&(uid, action.to_string())) {
                 if entry.expires > Instant::now() {
-                    debug!("Auth cache hit for uid={} action={}: {:?}", uid, action, entry.result);
+                    debug!(
+                        "Auth cache hit for uid={} action={}: {:?}",
+                        uid, action, entry.result
+                    );
                     return Ok(entry.result);
                 }
             }
@@ -112,7 +115,10 @@ impl AuthManager {
             );
         }
 
-        info!("Auth result for uid={} action={}: {:?}", uid, action, result);
+        info!(
+            "Auth result for uid={} action={}: {:?}",
+            uid, action, result
+        );
         Ok(result)
     }
 
@@ -259,6 +265,70 @@ impl Default for AuthManager {
 mod tests {
     use super::*;
 
+    // ==================== AuthResult Tests ====================
+
+    #[test]
+    fn test_auth_result_equality() {
+        assert_eq!(AuthResult::Authorized, AuthResult::Authorized);
+        assert_eq!(AuthResult::NotAuthorized, AuthResult::NotAuthorized);
+        assert_eq!(AuthResult::Challenge, AuthResult::Challenge);
+        assert_ne!(AuthResult::Authorized, AuthResult::NotAuthorized);
+        assert_ne!(AuthResult::Authorized, AuthResult::Challenge);
+    }
+
+    #[test]
+    fn test_auth_result_copy() {
+        let result = AuthResult::Authorized;
+        let copied = result; // Copy trait
+        assert_eq!(result, copied);
+    }
+
+    #[test]
+    fn test_auth_result_debug() {
+        assert!(format!("{:?}", AuthResult::Authorized).contains("Authorized"));
+        assert!(format!("{:?}", AuthResult::NotAuthorized).contains("NotAuthorized"));
+        assert!(format!("{:?}", AuthResult::Challenge).contains("Challenge"));
+    }
+
+    // ==================== Actions Constants Tests ====================
+
+    #[test]
+    fn test_action_constants() {
+        assert_eq!(actions::MANAGE, "org.ebpf-assist.manage");
+        assert_eq!(actions::LOAD, "org.ebpf-assist.load");
+        assert_eq!(actions::ATTACH, "org.ebpf-assist.attach");
+    }
+
+    // ==================== AuthManager Tests ====================
+
+    #[test]
+    fn test_auth_manager_default() {
+        let auth = AuthManager::default();
+        assert!(auth.enabled);
+        assert!(auth.connection.is_none());
+        assert_eq!(auth.cache_duration, DEFAULT_CACHE_DURATION);
+    }
+
+    #[test]
+    fn test_auth_manager_new() {
+        let auth = AuthManager::new();
+        assert!(auth.enabled);
+        assert!(auth.connection.is_none());
+    }
+
+    #[test]
+    fn test_auth_manager_disabled() {
+        let auth = AuthManager::disabled();
+        assert!(!auth.enabled);
+    }
+
+    #[test]
+    fn test_auth_manager_with_cache_duration() {
+        let custom_duration = Duration::from_secs(60);
+        let auth = AuthManager::new().with_cache_duration(custom_duration);
+        assert_eq!(auth.cache_duration, custom_duration);
+    }
+
     #[tokio::test]
     async fn test_disabled_auth() {
         let mut auth = AuthManager::disabled();
@@ -267,9 +337,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_disabled_auth_all_actions() {
+        let mut auth = AuthManager::disabled();
+
+        let result = auth
+            .check_authorization(1000, actions::MANAGE)
+            .await
+            .unwrap();
+        assert_eq!(result, AuthResult::Authorized);
+
+        let result = auth.check_authorization(1000, actions::LOAD).await.unwrap();
+        assert_eq!(result, AuthResult::Authorized);
+
+        let result = auth
+            .check_authorization(1000, actions::ATTACH)
+            .await
+            .unwrap();
+        assert_eq!(result, AuthResult::Authorized);
+    }
+
+    #[tokio::test]
+    async fn test_disabled_request_authorization() {
+        let mut auth = AuthManager::disabled();
+        let result = auth
+            .request_authorization(1000, actions::LOAD)
+            .await
+            .unwrap();
+        assert_eq!(result, AuthResult::Authorized);
+    }
+
+    #[tokio::test]
     async fn test_cache_clear() {
         let auth = AuthManager::new();
+        // Should not panic
         auth.clear_cache(Some(1000)).await;
         auth.clear_cache(None).await;
+    }
+
+    #[tokio::test]
+    async fn test_cache_clear_specific_user() {
+        let auth = AuthManager::new();
+        // Clear for a specific user
+        auth.clear_cache(Some(1000)).await;
+        auth.clear_cache(Some(1001)).await;
+    }
+
+    #[tokio::test]
+    async fn test_cache_clear_all_users() {
+        let auth = AuthManager::new();
+        // Clear all
+        auth.clear_cache(None).await;
+    }
+
+    // ==================== DEFAULT_CACHE_DURATION Tests ====================
+
+    #[test]
+    fn test_default_cache_duration() {
+        assert_eq!(DEFAULT_CACHE_DURATION, Duration::from_secs(15 * 60));
+        assert_eq!(DEFAULT_CACHE_DURATION.as_secs(), 900);
     }
 }

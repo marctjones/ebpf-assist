@@ -1,9 +1,13 @@
 [package]
 name = "ebpf-assist"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "CLI for managing eBPF programs via ebpf-assistd"
-license = "MIT OR Apache-2.0"
+readme = "../../README.md"
+keywords = ["ebpf", "bpf", "tracing", "linux", "ai"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "ebpf-assist"
@@ -11,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 ebpf-assist-common = { path = "../ebpf-assist-common" }
+ebpf-assist-vm = { path = "../ebpf-assist-vm" }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
@@ -22,3 +27,7 @@ tracing-subscriber = "0.3"
 # Compilation helper
 which = "6"
 glob = "0.3"
+dirs = "5"
+
+[dev-dependencies]
+tempfile = { workspace = true }

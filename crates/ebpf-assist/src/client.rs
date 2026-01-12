@@ -18,14 +18,12 @@ impl Client {
         let socket_path = user_socket_path();
         debug!("Connecting to {}", socket_path.display());
 
-        let stream = UnixStream::connect(&socket_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to connect to daemon at {}. Is ebpf-assistd running?",
-                    socket_path.display()
-                )
-            })?;
+        let stream = UnixStream::connect(&socket_path).await.with_context(|| {
+            format!(
+                "Failed to connect to daemon at {}. Is ebpf-assistd running?",
+                socket_path.display()
+            )
+        })?;
 
         Ok(Self {
             stream: BufReader::new(stream),
@@ -49,8 +47,8 @@ impl Client {
 
         debug!("Received: {}", response_line.trim());
 
-        let response: Response = serde_json::from_str(&response_line)
-            .context("Failed to parse response from daemon")?;
+        let response: Response =
+            serde_json::from_str(&response_line).context("Failed to parse response from daemon")?;
 
         Ok(response)
     }

@@ -3,6 +3,11 @@ name = "ebpf-assist-common"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Shared types for ebpf-assist daemon and CLI"
+readme = "../../README.md"
+keywords = ["ebpf", "bpf"]
+categories = ["development-tools"]
 
 [dependencies]
 serde = { workspace = true }

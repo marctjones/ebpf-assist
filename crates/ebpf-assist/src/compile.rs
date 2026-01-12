@@ -69,7 +69,7 @@ fn find_bpf_headers() -> Vec<PathBuf> {
 
     // Priority 1: libbpf and system headers (these work standalone)
     let system_headers = [
-        "/usr/include",        // System includes (has linux/bpf.h from UAPI)
+        "/usr/include", // System includes (has linux/bpf.h from UAPI)
     ];
 
     for path in &system_headers {
@@ -83,7 +83,11 @@ fn find_bpf_headers() -> Vec<PathBuf> {
 }
 
 /// Compile an eBPF C source file to an object file.
-pub fn compile(source: &Path, output: Option<&Path>, options: &CompileOptions) -> Result<CompileResult> {
+pub fn compile(
+    source: &Path,
+    output: Option<&Path>,
+    options: &CompileOptions,
+) -> Result<CompileResult> {
     let clang = find_clang()?;
 
     // Determine output path
@@ -195,11 +199,14 @@ fn improve_error_message(stderr: &str) -> String {
                 improved.push_str("\n  💡 Suggestion: Add at the top of your file:\n");
                 improved.push_str("     #include <bpf/bpf_helpers.h>\n");
             } else if line.contains("PT_REGS") || line.contains("ctx->") {
-                improved.push_str("\n  💡 Suggestion: For accessing function arguments, include:\n");
+                improved
+                    .push_str("\n  💡 Suggestion: For accessing function arguments, include:\n");
                 improved.push_str("     #include <bpf/bpf_tracing.h>\n");
             }
         } else if line.contains("invalid program type") {
-            improved.push_str("\n  💡 Suggestion: Check your SEC() annotation matches a valid program type.\n");
+            improved.push_str(
+                "\n  💡 Suggestion: Check your SEC() annotation matches a valid program type.\n",
+            );
             improved.push_str("     Common types: kprobe/, kretprobe/, tracepoint/, xdp\n");
         }
     }
@@ -245,7 +252,8 @@ pub fn generate_template(template: TemplateType, name: &str, target: Option<&str
 
 fn generate_kprobe_template(name: &str, target: Option<&str>) -> String {
     let target = target.unwrap_or("do_sys_openat2");
-    format!(r#"// {name}.c - Kprobe eBPF program
+    format!(
+        r#"// {name}.c - Kprobe eBPF program
 // Compile: ebpf-assist compile {name}.c
 // Load:    ebpf-assist load {name}.o
 // Attach:  ebpf-assist attach <id> {target}
@@ -265,12 +273,14 @@ int {name}(struct pt_regs *ctx)
 
     return 0;
 }}
-"#)
+"#
+    )
 }
 
 fn generate_kretprobe_template(name: &str, target: Option<&str>) -> String {
     let target = target.unwrap_or("do_sys_openat2");
-    format!(r#"// {name}.c - Kretprobe eBPF program
+    format!(
+        r#"// {name}.c - Kretprobe eBPF program
 // Compile: ebpf-assist compile {name}.c
 // Load:    ebpf-assist load {name}.o
 // Attach:  ebpf-assist attach <id> {target}
@@ -291,13 +301,17 @@ int {name}(struct pt_regs *ctx)
 
     return 0;
 }}
-"#)
+"#
+    )
 }
 
 fn generate_tracepoint_template(name: &str, target: Option<&str>) -> String {
     let target = target.unwrap_or("syscalls/sys_enter_openat");
-    let (category, event) = target.split_once('/').unwrap_or(("syscalls", "sys_enter_openat"));
-    format!(r#"// {name}.c - Tracepoint eBPF program
+    let (category, event) = target
+        .split_once('/')
+        .unwrap_or(("syscalls", "sys_enter_openat"));
+    format!(
+        r#"// {name}.c - Tracepoint eBPF program
 // Compile: ebpf-assist compile {name}.c
 // Load:    ebpf-assist load {name}.o
 // Attach:  ebpf-assist attach <id> {category}:{event}
@@ -316,11 +330,13 @@ int {name}(void *ctx)
 
     return 0;
 }}
-"#)
+"#
+    )
 }
 
 fn generate_xdp_template(name: &str) -> String {
-    format!(r#"// {name}.c - XDP eBPF program
+    format!(
+        r#"// {name}.c - XDP eBPF program
 // Compile: ebpf-assist compile {name}.c
 // Load:    ebpf-assist load {name}.o
 // Attach:  ebpf-assist attach <id> eth0  (replace with your interface)
@@ -356,12 +372,14 @@ int {name}(struct xdp_md *ctx)
 
     return XDP_PASS;  // XDP_DROP to drop, XDP_TX to bounce back
 }}
-"#)
+"#
+    )
 }
 
 fn generate_raw_tracepoint_template(name: &str, target: Option<&str>) -> String {
     let target = target.unwrap_or("sys_enter");
-    format!(r#"// {name}.c - Raw tracepoint eBPF program
+    format!(
+        r#"// {name}.c - Raw tracepoint eBPF program
 // Compile: ebpf-assist compile {name}.c
 // Load:    ebpf-assist load {name}.o
 // Attach:  ebpf-assist attach <id> {target}
@@ -380,5 +398,327 @@ int {name}(struct bpf_raw_tracepoint_args *ctx)
 
     return 0;
 }}
-"#)
+"#
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== CompileOptions Tests ====================
+
+    #[test]
+    fn test_compile_options_default() {
+        let opts = CompileOptions::default();
+        assert!(opts.includes.is_empty());
+        assert!(opts.defines.is_empty());
+        assert!(opts.btf);
+        assert_eq!(opts.opt_level, 2);
+        assert_eq!(opts.target, "bpf");
+        assert!(opts.extra_flags.is_empty());
+    }
+
+    #[test]
+    fn test_compile_options_clone() {
+        let opts = CompileOptions {
+            includes: vec![PathBuf::from("/usr/include")],
+            defines: vec![("DEBUG".to_string(), Some("1".to_string()))],
+            btf: true,
+            opt_level: 3,
+            target: "bpf".to_string(),
+            extra_flags: vec!["-Wall".to_string()],
+        };
+        let cloned = opts.clone();
+        assert_eq!(cloned.includes.len(), 1);
+        assert_eq!(cloned.defines.len(), 1);
+        assert_eq!(cloned.opt_level, 3);
+    }
+
+    #[test]
+    fn test_compile_options_debug() {
+        let opts = CompileOptions::default();
+        let debug_str = format!("{:?}", opts);
+        assert!(debug_str.contains("CompileOptions"));
+        assert!(debug_str.contains("btf"));
+    }
+
+    // ==================== TemplateType Tests ====================
+
+    #[test]
+    fn test_template_type_from_str_kprobe() {
+        let t: TemplateType = "kprobe".parse().unwrap();
+        assert!(matches!(t, TemplateType::Kprobe));
+    }
+
+    #[test]
+    fn test_template_type_from_str_kretprobe() {
+        let t: TemplateType = "kretprobe".parse().unwrap();
+        assert!(matches!(t, TemplateType::Kretprobe));
+    }
+
+    #[test]
+    fn test_template_type_from_str_tracepoint() {
+        let t: TemplateType = "tracepoint".parse().unwrap();
+        assert!(matches!(t, TemplateType::Tracepoint));
+    }
+
+    #[test]
+    fn test_template_type_from_str_tp_alias() {
+        let t: TemplateType = "tp".parse().unwrap();
+        assert!(matches!(t, TemplateType::Tracepoint));
+    }
+
+    #[test]
+    fn test_template_type_from_str_xdp() {
+        let t: TemplateType = "xdp".parse().unwrap();
+        assert!(matches!(t, TemplateType::Xdp));
+    }
+
+    #[test]
+    fn test_template_type_from_str_raw_tracepoint() {
+        let t: TemplateType = "raw_tracepoint".parse().unwrap();
+        assert!(matches!(t, TemplateType::RawTracepoint));
+    }
+
+    #[test]
+    fn test_template_type_from_str_raw_tp_alias() {
+        let t: TemplateType = "raw_tp".parse().unwrap();
+        assert!(matches!(t, TemplateType::RawTracepoint));
+    }
+
+    #[test]
+    fn test_template_type_from_str_case_insensitive() {
+        let t: TemplateType = "KPROBE".parse().unwrap();
+        assert!(matches!(t, TemplateType::Kprobe));
+
+        let t: TemplateType = "Xdp".parse().unwrap();
+        assert!(matches!(t, TemplateType::Xdp));
+
+        let t: TemplateType = "TracePoint".parse().unwrap();
+        assert!(matches!(t, TemplateType::Tracepoint));
+    }
+
+    #[test]
+    fn test_template_type_from_str_invalid() {
+        let result: Result<TemplateType> = "invalid".parse();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Unknown template type"));
+    }
+
+    #[test]
+    fn test_template_type_clone_copy() {
+        let t = TemplateType::Kprobe;
+        let cloned = t.clone();
+        let copied = t;
+        assert!(matches!(cloned, TemplateType::Kprobe));
+        assert!(matches!(copied, TemplateType::Kprobe));
+    }
+
+    #[test]
+    fn test_template_type_debug() {
+        let t = TemplateType::Kprobe;
+        let debug = format!("{:?}", t);
+        assert!(debug.contains("Kprobe"));
+    }
+
+    // ==================== Template Generation Tests ====================
+
+    #[test]
+    fn test_generate_kprobe_template() {
+        let content = generate_template(TemplateType::Kprobe, "my_probe", None);
+        assert!(content.contains("my_probe.c - Kprobe"));
+        assert!(content.contains("SEC(\"kprobe/"));
+        assert!(content.contains("do_sys_openat2")); // default target
+        assert!(content.contains("bpf_printk"));
+        assert!(content.contains("LICENSE"));
+    }
+
+    #[test]
+    fn test_generate_kprobe_template_custom_target() {
+        let content = generate_template(TemplateType::Kprobe, "my_probe", Some("tcp_connect"));
+        assert!(content.contains("SEC(\"kprobe/tcp_connect\")"));
+        assert!(content.contains("tcp_connect"));
+    }
+
+    #[test]
+    fn test_generate_kretprobe_template() {
+        let content = generate_template(TemplateType::Kretprobe, "ret_probe", None);
+        assert!(content.contains("ret_probe.c - Kretprobe"));
+        assert!(content.contains("SEC(\"kretprobe/"));
+        assert!(content.contains("PT_REGS_RC")); // return value access
+    }
+
+    #[test]
+    fn test_generate_kretprobe_template_custom_target() {
+        let content = generate_template(TemplateType::Kretprobe, "ret_probe", Some("sys_read"));
+        assert!(content.contains("SEC(\"kretprobe/sys_read\")"));
+    }
+
+    #[test]
+    fn test_generate_tracepoint_template() {
+        let content = generate_template(TemplateType::Tracepoint, "tp_probe", None);
+        assert!(content.contains("tp_probe.c - Tracepoint"));
+        assert!(content.contains("SEC(\"tracepoint/"));
+        assert!(content.contains("syscalls/sys_enter_openat")); // default
+    }
+
+    #[test]
+    fn test_generate_tracepoint_template_custom_target() {
+        let content = generate_template(
+            TemplateType::Tracepoint,
+            "tp_probe",
+            Some("sched/sched_switch"),
+        );
+        assert!(content.contains("SEC(\"tracepoint/sched/sched_switch\")"));
+    }
+
+    #[test]
+    fn test_generate_xdp_template() {
+        let content = generate_template(TemplateType::Xdp, "my_xdp", None);
+        assert!(content.contains("my_xdp.c - XDP"));
+        assert!(content.contains("SEC(\"xdp\")"));
+        assert!(content.contains("struct xdp_md"));
+        assert!(content.contains("XDP_PASS"));
+        assert!(content.contains("struct ethhdr"));
+        assert!(content.contains("struct iphdr"));
+    }
+
+    #[test]
+    fn test_generate_raw_tracepoint_template() {
+        let content = generate_template(TemplateType::RawTracepoint, "raw_tp", None);
+        assert!(content.contains("raw_tp.c - Raw tracepoint"));
+        assert!(content.contains("SEC(\"raw_tracepoint/"));
+        assert!(content.contains("sys_enter")); // default target
+    }
+
+    #[test]
+    fn test_generate_raw_tracepoint_template_custom_target() {
+        let content =
+            generate_template(TemplateType::RawTracepoint, "raw_tp", Some("sched_switch"));
+        assert!(content.contains("SEC(\"raw_tracepoint/sched_switch\")"));
+    }
+
+    #[test]
+    fn test_generated_templates_have_license() {
+        for template_type in [
+            TemplateType::Kprobe,
+            TemplateType::Kretprobe,
+            TemplateType::Tracepoint,
+            TemplateType::Xdp,
+            TemplateType::RawTracepoint,
+        ] {
+            let content = generate_template(template_type, "test", None);
+            assert!(
+                content.contains("LICENSE"),
+                "Template {:?} missing LICENSE",
+                template_type
+            );
+            assert!(
+                content.contains("GPL"),
+                "Template {:?} missing GPL",
+                template_type
+            );
+        }
+    }
+
+    #[test]
+    fn test_generated_templates_have_bpf_includes() {
+        for template_type in [
+            TemplateType::Kprobe,
+            TemplateType::Kretprobe,
+            TemplateType::Tracepoint,
+            TemplateType::Xdp,
+            TemplateType::RawTracepoint,
+        ] {
+            let content = generate_template(template_type, "test", None);
+            assert!(
+                content.contains("#include <linux/bpf.h>"),
+                "Template {:?} missing bpf.h",
+                template_type
+            );
+            assert!(
+                content.contains("#include <bpf/bpf_helpers.h>"),
+                "Template {:?} missing bpf_helpers.h",
+                template_type
+            );
+        }
+    }
+
+    // ==================== Error Message Improvement Tests ====================
+
+    #[test]
+    fn test_improve_error_message_bpf_helpers() {
+        let input = "fatal error: 'bpf/bpf_helpers.h' file not found";
+        let result = improve_error_message(input);
+        assert!(result.contains("libbpf-dev"));
+        assert!(result.contains("apt install"));
+    }
+
+    #[test]
+    fn test_improve_error_message_linux_bpf() {
+        let input = "fatal error: 'linux/bpf.h' file not found";
+        let result = improve_error_message(input);
+        assert!(result.contains("kernel headers"));
+        assert!(result.contains("linux-headers"));
+    }
+
+    #[test]
+    fn test_improve_error_message_unknown_target() {
+        let input = "unknown target CPU 'bpf'";
+        let result = improve_error_message(input);
+        assert!(result.contains("newer clang"));
+    }
+
+    #[test]
+    fn test_improve_error_message_undeclared_bpf_printk() {
+        let input = "use of undeclared identifier 'bpf_printk'";
+        let result = improve_error_message(input);
+        assert!(result.contains("bpf/bpf_helpers.h"));
+    }
+
+    #[test]
+    fn test_improve_error_message_undeclared_pt_regs() {
+        let input = "use of undeclared identifier 'PT_REGS_PARM1'";
+        let result = improve_error_message(input);
+        assert!(result.contains("bpf/bpf_tracing.h"));
+    }
+
+    #[test]
+    fn test_improve_error_message_invalid_program_type() {
+        let input = "invalid program type in SEC() annotation";
+        let result = improve_error_message(input);
+        assert!(result.contains("SEC()"));
+        assert!(result.contains("kprobe/"));
+    }
+
+    #[test]
+    fn test_improve_error_message_passthrough() {
+        let input = "some random error without special handling";
+        let result = improve_error_message(input);
+        assert!(result.contains("some random error"));
+    }
+
+    // ==================== find_bpf_headers Tests ====================
+
+    #[test]
+    fn test_find_bpf_headers_returns_vec() {
+        let headers = find_bpf_headers();
+        // Should return a vec (may be empty or contain /usr/include)
+        let _ = headers.len();
+    }
+
+    #[test]
+    fn test_find_bpf_headers_checks_existence() {
+        let headers = find_bpf_headers();
+        // All returned paths should exist
+        for path in headers {
+            assert!(
+                path.is_dir(),
+                "Path {} should be a directory",
+                path.display()
+            );
+        }
+    }
 }

@@ -98,7 +98,7 @@ pub async fn handle_tools_list() -> Result<serde_json::Value> {
         },
         ToolDefinition {
             name: "ebpf_load".to_string(),
-            description: "Load an eBPF program from an object file. Returns the program ID for use with attach/detach.".to_string(),
+            description: "Load an eBPF program from an object file. Returns the program ID for use with attach/detach. Use isolate=true to run in a MicroVM for safe testing of risky programs.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -109,6 +109,10 @@ pub async fn handle_tools_list() -> Result<serde_json::Value> {
                     "program_name": {
                         "type": "string",
                         "description": "Name of the program within the object file (required if multiple programs exist)"
+                    },
+                    "isolate": {
+                        "type": "boolean",
+                        "description": "Run in isolated MicroVM for safe testing (default: false). Useful for XDP, TC, or experimental programs that might crash the kernel."
                     }
                 },
                 "required": ["path"]
@@ -309,6 +313,36 @@ pub async fn handle_tools_list() -> Result<serde_json::Value> {
                 "required": ["id", "map_name", "key"]
             }),
         },
+        ToolDefinition {
+            name: "ebpf_vm_init".to_string(),
+            description: "Check MicroVM environment status (KVM access, required files). Run this before using isolate=true.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ToolDefinition {
+            name: "ebpf_vm_list".to_string(),
+            description: "List all running MicroVMs used for isolated eBPF testing.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ToolDefinition {
+            name: "ebpf_vm_stop".to_string(),
+            description: "Stop a running MicroVM by its ID.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "VM ID to stop (from ebpf_load with isolate=true or ebpf_vm_list)"
+                    }
+                },
+                "required": ["vm_id"]
+            }),
+        },
     ];
 
     Ok(serde_json::json!({ "tools": tools }))
@@ -316,8 +350,8 @@ pub async fn handle_tools_list() -> Result<serde_json::Value> {
 
 /// Handle tools/call request.
 pub async fn handle_tools_call(params: serde_json::Value) -> Result<serde_json::Value> {
-    let call: ToolCallParams = serde_json::from_value(params)
-        .context("Invalid tool call parameters")?;
+    let call: ToolCallParams =
+        serde_json::from_value(params).context("Invalid tool call parameters")?;
 
     debug!("Tool call: {} with args: {:?}", call.name, call.arguments);
 
@@ -337,7 +371,13 @@ pub async fn handle_tools_call(params: serde_json::Value) -> Result<serde_json::
         "ebpf_map_read" => tool_map_read(call.arguments).await,
         "ebpf_map_write" => tool_map_write(call.arguments).await,
         "ebpf_map_delete" => tool_map_delete(call.arguments).await,
-        _ => Ok(ToolCallResult::error(format!("Unknown tool: {}", call.name))),
+        "ebpf_vm_init" => tool_vm_init().await,
+        "ebpf_vm_list" => tool_vm_list().await,
+        "ebpf_vm_stop" => tool_vm_stop(call.arguments).await,
+        _ => Ok(ToolCallResult::error(format!(
+            "Unknown tool: {}",
+            call.name
+        ))),
     };
 
     match result {
@@ -349,12 +389,12 @@ pub async fn handle_tools_call(params: serde_json::Value) -> Result<serde_json::
 /// Send a request to the daemon and get the response.
 async fn daemon_request(request: Request) -> Result<Response> {
     let socket_path = user_socket_path();
-    let stream = UnixStream::connect(&socket_path)
-        .await
-        .with_context(|| format!(
+    let stream = UnixStream::connect(&socket_path).await.with_context(|| {
+        format!(
             "Failed to connect to daemon at {}. Is ebpf-assistd running?",
             socket_path.display()
-        ))?;
+        )
+    })?;
 
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -367,8 +407,8 @@ async fn daemon_request(request: Request) -> Result<Response> {
     let mut response_line = String::new();
     reader.read_line(&mut response_line).await?;
 
-    let response: Response = serde_json::from_str(&response_line)
-        .context("Failed to parse daemon response")?;
+    let response: Response =
+        serde_json::from_str(&response_line).context("Failed to parse daemon response")?;
 
     Ok(response)
 }
@@ -469,9 +509,16 @@ async fn tool_compile(args: serde_json::Value) -> Result<ToolCallResult> {
     if output.status.success() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
             let output_path = json.get("output").and_then(|v| v.as_str()).unwrap_or("");
-            let warnings = json.get("warnings").and_then(|v| v.as_array()).map(|w| {
-                w.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n")
-            }).unwrap_or_default();
+            let warnings = json
+                .get("warnings")
+                .and_then(|v| v.as_array())
+                .map(|w| {
+                    w.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default();
 
             let mut msg = format!("Compiled successfully:\n  Output: {}", output_path);
             if !warnings.is_empty() {
@@ -485,7 +532,10 @@ async fn tool_compile(args: serde_json::Value) -> Result<ToolCallResult> {
     } else {
         // Parse error JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
-            let error = json.get("error").and_then(|v| v.as_str()).unwrap_or("Compilation failed");
+            let error = json
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Compilation failed");
             Ok(ToolCallResult::error(error.to_string()))
         } else {
             Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
@@ -497,21 +547,35 @@ async fn tool_compile(args: serde_json::Value) -> Result<ToolCallResult> {
 struct LoadArgs {
     path: String,
     program_name: Option<String>,
+    #[serde(default)]
+    isolate: bool,
 }
 
 async fn tool_load(args: serde_json::Value) -> Result<ToolCallResult> {
     let args: LoadArgs = serde_json::from_value(args)?;
 
-    let path = PathBuf::from(&args.path).canonicalize()
+    let path = PathBuf::from(&args.path)
+        .canonicalize()
         .with_context(|| format!("File not found: {}", args.path))?;
+
+    // If isolate is requested, use the CLI with --isolate flag
+    if args.isolate {
+        return tool_load_isolated(&path, args.program_name.as_deref()).await;
+    }
 
     let response = daemon_request(Request::Load {
         path,
         program_name: args.program_name,
-    }).await?;
+    })
+    .await?;
 
     match response {
-        Response::Loaded { id, name, program_type, warning } => {
+        Response::Loaded {
+            id,
+            name,
+            program_type,
+            warning,
+        } => {
             let mut msg = format!(
                 "Loaded eBPF program:\n  ID: {}\n  Name: {}\n  Type: {:?}",
                 id.0, name, program_type
@@ -519,13 +583,84 @@ async fn tool_load(args: serde_json::Value) -> Result<ToolCallResult> {
             if let Some(w) = warning {
                 msg.push_str(&format!("\n\n⚠️ {}", w));
             }
-            msg.push_str(&format!("\n\nUse ebpf_attach with id={} to attach to a kernel hook.", id.0));
+            msg.push_str(&format!(
+                "\n\nUse ebpf_attach with id={} to attach to a kernel hook.",
+                id.0
+            ));
             Ok(ToolCallResult::text(msg))
         }
         Response::Error { message, code } => {
             Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
         }
         _ => Ok(ToolCallResult::error("Unexpected response from daemon")),
+    }
+}
+
+/// Load a program in an isolated MicroVM.
+async fn tool_load_isolated(path: &std::path::Path, program_name: Option<&str>) -> Result<ToolCallResult> {
+    let mut cmd_args = vec![
+        "load".to_string(),
+        path.display().to_string(),
+        "--isolate".to_string(),
+        "--json".to_string(),
+    ];
+
+    if let Some(name) = program_name {
+        cmd_args.push("--name".to_string());
+        cmd_args.push(name.to_string());
+    }
+
+    let output = tokio::process::Command::new(find_cli_binary())
+        .args(&cmd_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context("Failed to run ebpf-assist load --isolate")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        // Parse JSON output
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let vm_id = json.get("vm_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let prog_id = json.get("program_id").and_then(|v| v.as_u64()).unwrap_or(0);
+            let name = json.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let prog_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+            Ok(ToolCallResult::text(format!(
+                "Loaded eBPF program in isolated MicroVM:\n\
+                 \n\
+                 🔒 ISOLATED MODE - Safe for risky programs\n\
+                 \n\
+                   VM ID:   {}\n\
+                   Prog ID: {}\n\
+                   Name:    {}\n\
+                   Type:    {}\n\
+                 \n\
+                 The program is running in a separate kernel.\n\
+                 Any crashes will NOT affect your host system.\n\
+                 \n\
+                 Use ebpf_attach with id={} to attach to a kernel hook.\n\
+                 Use ebpf_vm_stop with vm_id=\"{}\" to stop the VM.",
+                vm_id, prog_id, name, prog_type, prog_id, vm_id
+            )))
+        } else {
+            Ok(ToolCallResult::text(format!("{}{}", stdout, stderr)))
+        }
+    } else {
+        // Parse error
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let fallback = format!("{}{}", stdout, stderr);
+            let error = json
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&fallback);
+            Ok(ToolCallResult::error(error.to_string()))
+        } else {
+            Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
+        }
     }
 }
 
@@ -539,12 +674,11 @@ async fn tool_unload(args: serde_json::Value) -> Result<ToolCallResult> {
 
     let response = daemon_request(Request::Unload {
         id: ProgramId(args.id),
-    }).await?;
+    })
+    .await?;
 
     match response {
-        Response::Unloaded { id } => {
-            Ok(ToolCallResult::text(format!("Unloaded program {}", id.0)))
-        }
+        Response::Unloaded { id } => Ok(ToolCallResult::text(format!("Unloaded program {}", id.0))),
         Response::Error { message, code } => {
             Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
         }
@@ -564,7 +698,8 @@ async fn tool_attach(args: serde_json::Value) -> Result<ToolCallResult> {
     let response = daemon_request(Request::Attach {
         id: ProgramId(args.id),
         target: args.target.clone(),
-    }).await?;
+    })
+    .await?;
 
     match response {
         Response::Attached { id, target } => {
@@ -585,12 +720,11 @@ async fn tool_detach(args: serde_json::Value) -> Result<ToolCallResult> {
 
     let response = daemon_request(Request::Detach {
         id: ProgramId(args.id),
-    }).await?;
+    })
+    .await?;
 
     match response {
-        Response::Detached { id } => {
-            Ok(ToolCallResult::text(format!("Detached program {}", id.0)))
-        }
+        Response::Detached { id } => Ok(ToolCallResult::text(format!("Detached program {}", id.0))),
         Response::Error { message, code } => {
             Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
         }
@@ -607,8 +741,10 @@ async fn tool_list() -> Result<ToolCallResult> {
                 Ok(ToolCallResult::text("No eBPF programs loaded"))
             } else {
                 let mut output = String::from("Loaded eBPF programs:\n\n");
-                output.push_str(&format!("{:<6} {:<20} {:<15} {:<10} {}\n",
-                    "ID", "NAME", "TYPE", "ATTACHED", "TARGET"));
+                output.push_str(&format!(
+                    "{:<6} {:<20} {:<15} {:<10} {}\n",
+                    "ID", "NAME", "TYPE", "ATTACHED", "TARGET"
+                ));
                 output.push_str(&"-".repeat(70));
                 output.push('\n');
 
@@ -702,8 +838,7 @@ async fn tool_trigger(args: serde_json::Value) -> Result<ToolCallResult> {
     if output.status.success() {
         Ok(ToolCallResult::text(format!(
             "Triggered {} {}\n\n{}{}",
-            args.category, args.operation,
-            stdout, stderr
+            args.category, args.operation, stdout, stderr
         )))
     } else {
         Ok(ToolCallResult::error(format!(
@@ -721,8 +856,12 @@ struct TraceArgs {
     timeout: u64,
 }
 
-fn default_lines() -> usize { 10 }
-fn default_timeout() -> u64 { 5 }
+fn default_lines() -> usize {
+    10
+}
+fn default_timeout() -> u64 {
+    5
+}
 
 async fn tool_trace(args: serde_json::Value) -> Result<ToolCallResult> {
     let args: TraceArgs = serde_json::from_value(args).unwrap_or_default();
@@ -730,9 +869,12 @@ async fn tool_trace(args: serde_json::Value) -> Result<ToolCallResult> {
     // Run ebpf-assist output trace command
     let output = tokio::process::Command::new(find_cli_binary())
         .args([
-            "output", "trace",
-            "--lines", &args.lines.to_string(),
-            "--timeout", &args.timeout.to_string(),
+            "output",
+            "trace",
+            "--lines",
+            &args.lines.to_string(),
+            "--timeout",
+            &args.timeout.to_string(),
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -760,16 +902,22 @@ async fn tool_map_list(args: serde_json::Value) -> Result<ToolCallResult> {
 
     let response = daemon_request(Request::MapList {
         id: ProgramId(args.id),
-    }).await?;
+    })
+    .await?;
 
     match response {
         Response::Maps { maps } => {
             if maps.is_empty() {
-                Ok(ToolCallResult::text(format!("No maps in program {}", args.id)))
+                Ok(ToolCallResult::text(format!(
+                    "No maps in program {}",
+                    args.id
+                )))
             } else {
                 let mut output = format!("Maps for program {}:\n\n", args.id);
-                output.push_str(&format!("{:<20} {:<15} {:<10} {:<10} {}\n",
-                    "NAME", "TYPE", "KEY SIZE", "VAL SIZE", "MAX ENTRIES"));
+                output.push_str(&format!(
+                    "{:<20} {:<15} {:<10} {:<10} {}\n",
+                    "NAME", "TYPE", "KEY SIZE", "VAL SIZE", "MAX ENTRIES"
+                ));
                 output.push_str(&"-".repeat(70));
                 output.push('\n');
 
@@ -807,7 +955,8 @@ async fn tool_map_read(args: serde_json::Value) -> Result<ToolCallResult> {
         id: ProgramId(args.id),
         map_name: args.map_name.clone(),
         key: args.key.clone(),
-    }).await?;
+    })
+    .await?;
 
     match response {
         Response::MapEntries { map_name, entries } => {
@@ -815,7 +964,10 @@ async fn tool_map_read(args: serde_json::Value) -> Result<ToolCallResult> {
                 Ok(ToolCallResult::text(format!("Map '{}' is empty", map_name)))
             } else {
                 let mut output = format!("Map '{}' ({} entries):\n\n", map_name, entries.len());
-                output.push_str(&format!("{:<20} {:<20} {}\n", "KEY", "VALUE (hex)", "VALUE (dec)"));
+                output.push_str(&format!(
+                    "{:<20} {:<20} {}\n",
+                    "KEY", "VALUE (hex)", "VALUE (dec)"
+                ));
                 output.push_str(&"-".repeat(60));
                 output.push('\n');
 
@@ -849,15 +1001,14 @@ async fn tool_map_write(args: serde_json::Value) -> Result<ToolCallResult> {
         map_name: args.map_name.clone(),
         key: args.key.clone(),
         value: args.value.clone(),
-    }).await?;
+    })
+    .await?;
 
     match response {
-        Response::MapWritten { map_name, key } => {
-            Ok(ToolCallResult::text(format!(
-                "Wrote to map '{}' key '{}'\n\nUse ebpf_map_read to verify the written value.",
-                map_name, key
-            )))
-        }
+        Response::MapWritten { map_name, key } => Ok(ToolCallResult::text(format!(
+            "Wrote to map '{}' key '{}'\n\nUse ebpf_map_read to verify the written value.",
+            map_name, key
+        ))),
         Response::Error { message, code } => {
             Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
         }
@@ -879,15 +1030,162 @@ async fn tool_map_delete(args: serde_json::Value) -> Result<ToolCallResult> {
         id: ProgramId(args.id),
         map_name: args.map_name.clone(),
         key: args.key.clone(),
-    }).await?;
+    })
+    .await?;
 
     match response {
-        Response::MapDeleted { map_name, key } => {
-            Ok(ToolCallResult::text(format!("Deleted from map '{}' key '{}'", map_name, key)))
-        }
+        Response::MapDeleted { map_name, key } => Ok(ToolCallResult::text(format!(
+            "Deleted from map '{}' key '{}'",
+            map_name, key
+        ))),
         Response::Error { message, code } => {
             Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
         }
         _ => Ok(ToolCallResult::error("Unexpected response from daemon")),
+    }
+}
+
+// VM management tools
+
+async fn tool_vm_init() -> Result<ToolCallResult> {
+    let output = tokio::process::Command::new(find_cli_binary())
+        .args(["vm", "init", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context("Failed to run ebpf-assist vm init")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let kvm = json.get("kvm_available").and_then(|v| v.as_bool()).unwrap_or(false);
+            let kvm_writable = json.get("kvm_writable").and_then(|v| v.as_bool()).unwrap_or(false);
+            let ready = json.get("ready").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            let assets = json.get("assets").and_then(|v| v.as_object());
+            let fc_exists = assets
+                .and_then(|a| a.get("firecracker"))
+                .and_then(|f| f.get("exists"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let kernel_exists = assets
+                .and_then(|a| a.get("kernel"))
+                .and_then(|f| f.get("exists"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let rootfs_exists = assets
+                .and_then(|a| a.get("rootfs"))
+                .and_then(|f| f.get("exists"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            let kvm_status = if kvm && kvm_writable {
+                "✓ Available"
+            } else if kvm {
+                "⚠ Available but not accessible"
+            } else {
+                "✗ Not available"
+            };
+
+            let mut msg = format!(
+                "MicroVM Environment Status:\n\
+                 \n\
+                   KVM:        {}\n\
+                   Firecracker: {}\n\
+                   Kernel:      {}\n\
+                   Rootfs:      {}\n",
+                kvm_status,
+                if fc_exists { "✓ Present" } else { "✗ Missing" },
+                if kernel_exists { "✓ Present" } else { "✗ Missing" },
+                if rootfs_exists { "✓ Present" } else { "✗ Missing" }
+            );
+
+            if ready {
+                msg.push_str("\n✓ MicroVM environment ready!\n\nUse ebpf_load with isolate=true for safe testing.");
+            } else {
+                msg.push_str("\n\n⚠ Setup required. Run: ./scripts/vm/setup-vm.sh");
+            }
+
+            Ok(ToolCallResult::text(msg))
+        } else {
+            Ok(ToolCallResult::text(format!("{}{}", stdout, stderr)))
+        }
+    } else {
+        Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
+    }
+}
+
+async fn tool_vm_list() -> Result<ToolCallResult> {
+    let output = tokio::process::Command::new(find_cli_binary())
+        .args(["vm", "list", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context("Failed to run ebpf-assist vm list")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let vms = json.get("vms").and_then(|v| v.as_array());
+
+            if let Some(vms) = vms {
+                if vms.is_empty() {
+                    Ok(ToolCallResult::text(
+                        "No MicroVMs running.\n\nStart one with: ebpf_load(path=\"...\", isolate=true)"
+                    ))
+                } else {
+                    let mut msg = String::from("Running MicroVMs:\n\n");
+                    msg.push_str(&format!("{:<36} {:<15}\n", "VM ID", "STATE"));
+                    msg.push_str(&"-".repeat(55));
+                    msg.push('\n');
+
+                    for vm in vms {
+                        let id = vm.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                        let state = vm.get("state").and_then(|v| v.as_str()).unwrap_or("?");
+                        msg.push_str(&format!("{:<36} {:<15}\n", id, state));
+                    }
+
+                    Ok(ToolCallResult::text(msg))
+                }
+            } else {
+                Ok(ToolCallResult::text(format!("{}{}", stdout, stderr)))
+            }
+        } else {
+            Ok(ToolCallResult::text(format!("{}{}", stdout, stderr)))
+        }
+    } else {
+        Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
+    }
+}
+
+#[derive(Deserialize)]
+struct VmStopArgs {
+    vm_id: String,
+}
+
+async fn tool_vm_stop(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: VmStopArgs = serde_json::from_value(args)?;
+
+    let output = tokio::process::Command::new(find_cli_binary())
+        .args(["vm", "stop", &args.vm_id, "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context("Failed to run ebpf-assist vm stop")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        Ok(ToolCallResult::text(format!("Stopped MicroVM {}", args.vm_id)))
+    } else {
+        Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
     }
 }

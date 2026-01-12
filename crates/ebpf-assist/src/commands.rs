@@ -16,7 +16,8 @@ fn improve_error(code: ErrorCode, message: &str) -> String {
     match code {
         ErrorCode::NotFound => {
             if message.contains("program") {
-                improved.push_str("\n\n💡 Suggestion: Use 'ebpf-assist list' to see loaded programs.");
+                improved
+                    .push_str("\n\n💡 Suggestion: Use 'ebpf-assist list' to see loaded programs.");
             } else if message.contains("not found") {
                 improved.push_str("\n\n💡 File not found. Did you compile the program?");
                 improved.push_str("\n   Run: ebpf-assist compile <source.c>");
@@ -56,14 +57,18 @@ fn improve_error(code: ErrorCode, message: &str) -> String {
             }
         }
         ErrorCode::AlreadyAttached => {
-            improved.push_str("\n\n💡 Program is already attached. Detach first with: ebpf-assist detach <id>");
+            improved.push_str(
+                "\n\n💡 Program is already attached. Detach first with: ebpf-assist detach <id>",
+            );
         }
         ErrorCode::NotAttached => {
             improved.push_str("\n\n💡 Program is not attached. Attach first with: ebpf-assist attach <id> <target>");
         }
         ErrorCode::PolicyViolation => {
             improved.push_str("\n\n💡 This program type is blocked by security policy.");
-            improved.push_str("\n   Allowed types: kprobe, kretprobe, uprobe, uretprobe, tracepoint, perf_event");
+            improved.push_str(
+                "\n   Allowed types: kprobe, kretprobe, uprobe, uretprobe, tracepoint, perf_event",
+            );
             improved.push_str("\n   Warn types: xdp, tc, socket_filter");
             improved.push_str("\n   Blocked: lsm, struct_ops, cgroup");
         }
@@ -126,11 +131,14 @@ pub async fn load(path: &Path, program_name: Option<&str>, json_output: bool) ->
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -142,23 +150,24 @@ pub async fn load(path: &Path, program_name: Option<&str>, json_output: bool) ->
 
 /// Unload a program.
 pub async fn unload(id: u32, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
-        .request(Request::Unload {
-            id: ProgramId(id),
-        })
+        .request(Request::Unload { id: ProgramId(id) })
         .await?;
 
     match response {
         Response::Unloaded { id } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "id": id.0
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "id": id.0
+                    }))?
+                );
             } else {
                 println!("Unloaded program {}", id.0);
             }
@@ -166,11 +175,14 @@ pub async fn unload(id: u32, json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -182,9 +194,9 @@ pub async fn unload(id: u32, json_output: bool) -> Result<()> {
 
 /// Attach a program to a target.
 pub async fn attach(id: u32, target: &str, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
         .request(Request::Attach {
@@ -196,11 +208,14 @@ pub async fn attach(id: u32, target: &str, json_output: bool) -> Result<()> {
     match response {
         Response::Attached { id, target } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "id": id.0,
-                    "target": target
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "id": id.0,
+                        "target": target
+                    }))?
+                );
             } else {
                 println!("Attached program {} to {}", id.0, target);
                 println!("\nNext steps:");
@@ -211,11 +226,14 @@ pub async fn attach(id: u32, target: &str, json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -227,23 +245,24 @@ pub async fn attach(id: u32, target: &str, json_output: bool) -> Result<()> {
 
 /// Detach a program.
 pub async fn detach(id: u32, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
-        .request(Request::Detach {
-            id: ProgramId(id),
-        })
+        .request(Request::Detach { id: ProgramId(id) })
         .await?;
 
     match response {
         Response::Detached { id } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "id": id.0
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "id": id.0
+                    }))?
+                );
             } else {
                 println!("Detached program {}", id.0);
             }
@@ -251,11 +270,14 @@ pub async fn detach(id: u32, json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -267,9 +289,9 @@ pub async fn detach(id: u32, json_output: bool) -> Result<()> {
 
 /// List all loaded programs.
 pub async fn list(json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client.request(Request::List).await?;
 
@@ -288,14 +310,20 @@ pub async fn list(json_output: bool) -> Result<()> {
                         })
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "programs": progs
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "programs": progs
+                    }))?
+                );
             } else if programs.is_empty() {
                 println!("No programs loaded");
                 println!("\n💡 Load a program with: ebpf-assist load <program.o>");
             } else {
-                println!("{:<6} {:<20} {:<15} {:<10} {}", "ID", "NAME", "TYPE", "ATTACHED", "TARGET");
+                println!(
+                    "{:<6} {:<20} {:<15} {:<10} {}",
+                    "ID", "NAME", "TYPE", "ATTACHED", "TARGET"
+                );
                 println!("{}", "-".repeat(70));
                 for prog in programs {
                     let attached = if prog.attached { "yes" } else { "no" };
@@ -314,11 +342,14 @@ pub async fn list(json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -330,9 +361,9 @@ pub async fn list(json_output: bool) -> Result<()> {
 
 /// Show daemon status.
 pub async fn status(json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client.request(Request::Status).await?;
 
@@ -344,28 +375,41 @@ pub async fn status(json_output: bool) -> Result<()> {
             capabilities,
         } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "version": version,
-                    "uptime_secs": uptime_secs,
-                    "programs_loaded": programs_loaded,
-                    "capabilities": capabilities
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "version": version,
+                        "uptime_secs": uptime_secs,
+                        "programs_loaded": programs_loaded,
+                        "capabilities": capabilities
+                    }))?
+                );
             } else {
                 println!("ebpf-assistd status:");
                 println!("  Version:         {}", version);
                 println!("  Uptime:          {}s", uptime_secs);
                 println!("  Programs loaded: {}", programs_loaded);
-                println!("  Capabilities:    {}", if capabilities.is_empty() { "none".to_string() } else { capabilities.join(", ") });
+                println!(
+                    "  Capabilities:    {}",
+                    if capabilities.is_empty() {
+                        "none".to_string()
+                    } else {
+                        capabilities.join(", ")
+                    }
+                );
             }
             Ok(())
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -377,18 +421,21 @@ pub async fn status(json_output: bool) -> Result<()> {
 
 /// Check if daemon is running.
 pub async fn ping(json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client.request(Request::Ping).await?;
 
     match response {
         Response::Pong => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "running": true
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "running": true
+                    }))?
+                );
             } else {
                 println!("Daemon is running");
             }
@@ -396,11 +443,14 @@ pub async fn ping(json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "running": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "running": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -412,9 +462,9 @@ pub async fn ping(json_output: bool) -> Result<()> {
 
 /// Request authorization (triggers GUI prompt).
 pub async fn unlock(json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     if !json_output {
         println!("Requesting authorization...");
@@ -425,11 +475,14 @@ pub async fn unlock(json_output: bool) -> Result<()> {
     match response {
         Response::Unlocked => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "authorized": true,
-                    "cache_duration_secs": 900
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "authorized": true,
+                        "cache_duration_secs": 900
+                    }))?
+                );
             } else {
                 println!("Authorization granted (cached for 15 minutes)");
             }
@@ -437,12 +490,15 @@ pub async fn unlock(json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "authorized": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "authorized": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -454,19 +510,22 @@ pub async fn unlock(json_output: bool) -> Result<()> {
 
 /// Clear authorization cache.
 pub async fn lock(json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client.request(Request::Lock).await?;
 
     match response {
         Response::Locked => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "authorized": false
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "authorized": false
+                    }))?
+                );
             } else {
                 println!("Authorization cache cleared");
             }
@@ -474,11 +533,14 @@ pub async fn lock(json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -490,9 +552,9 @@ pub async fn lock(json_output: bool) -> Result<()> {
 
 /// Check authorization status.
 pub async fn auth_status(json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client.request(Request::AuthStatus).await?;
 
@@ -502,10 +564,13 @@ pub async fn auth_status(json_output: bool) -> Result<()> {
             expires_in_secs,
         } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "authorized": authorized,
-                    "expires_in_secs": expires_in_secs
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "authorized": authorized,
+                        "expires_in_secs": expires_in_secs
+                    }))?
+                );
             } else if authorized {
                 println!("Authorized (expires in {} seconds)", expires_in_secs);
             } else {
@@ -516,11 +581,14 @@ pub async fn auth_status(json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -532,14 +600,12 @@ pub async fn auth_status(json_output: bool) -> Result<()> {
 
 /// List maps for a loaded program.
 pub async fn map_list(id: u32, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
-        .request(Request::MapList {
-            id: ProgramId(id),
-        })
+        .request(Request::MapList { id: ProgramId(id) })
         .await?;
 
     match response {
@@ -557,15 +623,21 @@ pub async fn map_list(id: u32, json_output: bool) -> Result<()> {
                         })
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "program_id": id,
-                    "maps": map_info
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "program_id": id,
+                        "maps": map_info
+                    }))?
+                );
             } else if maps.is_empty() {
                 println!("No maps in program {}", id);
             } else {
                 println!("Maps for program {}:", id);
-                println!("{:<20} {:<15} {:<10} {:<10} {}", "NAME", "TYPE", "KEY", "VALUE", "MAX ENTRIES");
+                println!(
+                    "{:<20} {:<15} {:<10} {:<10} {}",
+                    "NAME", "TYPE", "KEY", "VALUE", "MAX ENTRIES"
+                );
                 println!("{}", "-".repeat(70));
                 for m in maps {
                     println!(
@@ -582,11 +654,14 @@ pub async fn map_list(id: u32, json_output: bool) -> Result<()> {
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -598,9 +673,9 @@ pub async fn map_list(id: u32, json_output: bool) -> Result<()> {
 
 /// Read map entries.
 pub async fn map_read(id: u32, map_name: &str, key: Option<&str>, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
         .request(Request::MapRead {
@@ -629,10 +704,13 @@ pub async fn map_read(id: u32, map_name: &str, key: Option<&str>, json_output: b
                         obj
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "map_name": map_name,
-                    "entries": entry_info
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "map_name": map_name,
+                        "entries": entry_info
+                    }))?
+                );
             } else if entries.is_empty() {
                 println!("Map '{}' is empty", map_name);
             } else {
@@ -648,11 +726,14 @@ pub async fn map_read(id: u32, map_name: &str, key: Option<&str>, json_output: b
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -663,10 +744,16 @@ pub async fn map_read(id: u32, map_name: &str, key: Option<&str>, json_output: b
 }
 
 /// Write to a map.
-pub async fn map_write(id: u32, map_name: &str, key: &str, value: &str, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+pub async fn map_write(
+    id: u32,
+    map_name: &str,
+    key: &str,
+    value: &str,
+    json_output: bool,
+) -> Result<()> {
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
         .request(Request::MapWrite {
@@ -680,11 +767,14 @@ pub async fn map_write(id: u32, map_name: &str, key: &str, value: &str, json_out
     match response {
         Response::MapWritten { map_name, key } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "map_name": map_name,
-                    "key": key
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "map_name": map_name,
+                        "key": key
+                    }))?
+                );
             } else {
                 println!("Wrote to map '{}' key '{}'", map_name, key);
             }
@@ -692,11 +782,14 @@ pub async fn map_write(id: u32, map_name: &str, key: &str, value: &str, json_out
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));
@@ -708,9 +801,9 @@ pub async fn map_write(id: u32, map_name: &str, key: &str, value: &str, json_out
 
 /// Delete a map entry.
 pub async fn map_delete(id: u32, map_name: &str, key: &str, json_output: bool) -> Result<()> {
-    let mut client = Client::connect().await.with_context(|| {
-        "Failed to connect to daemon. Is ebpf-assistd running?"
-    })?;
+    let mut client = Client::connect()
+        .await
+        .with_context(|| "Failed to connect to daemon. Is ebpf-assistd running?")?;
 
     let response = client
         .request(Request::MapDelete {
@@ -723,11 +816,14 @@ pub async fn map_delete(id: u32, map_name: &str, key: &str, json_output: bool) -
     match response {
         Response::MapDeleted { map_name, key } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": true,
-                    "map_name": map_name,
-                    "key": key
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": true,
+                        "map_name": map_name,
+                        "key": key
+                    }))?
+                );
             } else {
                 println!("Deleted from map '{}' key '{}'", map_name, key);
             }
@@ -735,11 +831,14 @@ pub async fn map_delete(id: u32, map_name: &str, key: &str, json_output: bool) -
         }
         Response::Error { message, code } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "success": false,
-                    "error": message,
-                    "code": format!("{:?}", code)
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "success": false,
+                        "error": message,
+                        "code": format!("{:?}", code)
+                    }))?
+                );
                 std::process::exit(1);
             } else {
                 bail!("{}", improve_error(code, &message));

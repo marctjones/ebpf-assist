@@ -164,14 +164,14 @@ fi
 # Test tools/list
 TOOLS_RESP=$(echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | $MCP 2>/dev/null)
 TOOL_COUNT=$(echo "$TOOLS_RESP" | jq '.result.tools | length')
-if [[ "$TOOL_COUNT" -eq 15 ]]; then
-    pass "MCP tools/list (15 tools)"
+if [[ "$TOOL_COUNT" -ge 18 ]]; then
+    pass "MCP tools/list ($TOOL_COUNT tools)"
 else
-    fail "MCP tools/list" "Expected 15 tools, got $TOOL_COUNT"
+    fail "MCP tools/list" "Expected >= 18 tools, got $TOOL_COUNT"
 fi
 
 # Check each tool exists
-EXPECTED_TOOLS="ebpf_new ebpf_compile ebpf_load ebpf_unload ebpf_attach ebpf_detach ebpf_list ebpf_status ebpf_unlock ebpf_trigger ebpf_trace ebpf_map_list ebpf_map_read ebpf_map_write ebpf_map_delete"
+EXPECTED_TOOLS="ebpf_new ebpf_compile ebpf_load ebpf_unload ebpf_attach ebpf_detach ebpf_list ebpf_status ebpf_unlock ebpf_trigger ebpf_trace ebpf_map_list ebpf_map_read ebpf_map_write ebpf_map_delete ebpf_vm_init ebpf_vm_list ebpf_vm_stop"
 for tool in $EXPECTED_TOOLS; do
     if echo "$TOOLS_RESP" | jq -e ".result.tools[] | select(.name == \"$tool\")" >/dev/null 2>&1; then
         pass "MCP tool: $tool"
@@ -241,6 +241,46 @@ if [[ -S "$SOCKET_PATH" ]]; then
     fi
 else
     skip "Daemon connectivity" "Daemon not running (start with: $DAEMON)"
+fi
+
+# Test VM commands
+section "MicroVM Support"
+
+# Test vm init (doesn't require root)
+if $CLI vm init --json 2>&1 | jq -e '.kvm_available' >/dev/null 2>&1; then
+    pass "ebpf-assist vm init --json"
+else
+    fail "ebpf-assist vm init --json" "Invalid response"
+fi
+
+# Test vm list
+if $CLI vm list --json 2>&1 | jq -e '.vms' >/dev/null 2>&1; then
+    pass "ebpf-assist vm list --json"
+else
+    fail "ebpf-assist vm list --json" "Invalid response"
+fi
+
+# Check if MicroVM is ready
+VM_STATUS=$($CLI vm init --json 2>&1)
+if echo "$VM_STATUS" | jq -e '.ready == true' >/dev/null 2>&1; then
+    pass "MicroVM ready (all assets present)"
+else
+    skip "MicroVM" "Not ready - run ./scripts/vm/setup-vm.sh"
+fi
+
+# Test MCP VM tools
+VM_INIT_RESP=$(echo '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"ebpf_vm_init","arguments":{}}}' | $MCP 2>/dev/null)
+if echo "$VM_INIT_RESP" | jq -e '.result.content[0].text' >/dev/null 2>&1; then
+    pass "MCP ebpf_vm_init tool"
+else
+    fail "MCP ebpf_vm_init tool" "Invalid response"
+fi
+
+VM_LIST_RESP=$(echo '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"ebpf_vm_list","arguments":{}}}' | $MCP 2>/dev/null)
+if echo "$VM_LIST_RESP" | jq -e '.result.content[0].text' >/dev/null 2>&1; then
+    pass "MCP ebpf_vm_list tool"
+else
+    fail "MCP ebpf_vm_list tool" "Invalid response"
 fi
 
 # Test trigger commands (don't require daemon)

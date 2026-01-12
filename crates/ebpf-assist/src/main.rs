@@ -4,6 +4,7 @@ mod client;
 mod commands;
 mod compile;
 mod trigger;
+pub mod vm;
 
 use std::path::PathBuf;
 
@@ -82,6 +83,10 @@ enum Commands {
         /// Name of the program within the object file (required if multiple)
         #[arg(short, long)]
         name: Option<String>,
+
+        /// Run in isolated MicroVM (safer for risky programs)
+        #[arg(long)]
+        isolate: bool,
     },
 
     /// Unload a loaded eBPF program
@@ -134,6 +139,34 @@ enum Commands {
     /// Manage BPF maps for loaded programs
     #[command(subcommand)]
     Map(MapCommands),
+
+    /// Manage MicroVM isolation for safe eBPF testing
+    #[command(subcommand)]
+    Vm(VmCommands),
+}
+
+#[derive(Subcommand)]
+enum VmCommands {
+    /// Initialize MicroVM environment (check assets, KVM access)
+    Init,
+
+    /// List running MicroVMs
+    List,
+
+    /// Stop a running MicroVM
+    Stop {
+        /// VM ID to stop
+        vm_id: String,
+    },
+
+    /// Show detailed status of a MicroVM
+    Status {
+        /// VM ID to query
+        vm_id: String,
+    },
+
+    /// Show VM pool status and configuration
+    Pool,
 }
 
 #[derive(Subcommand)]
@@ -250,7 +283,11 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Set up logging
-    let level = if cli.verbose { Level::DEBUG } else { Level::WARN };
+    let level = if cli.verbose {
+        Level::DEBUG
+    } else {
+        Level::WARN
+    };
     FmtSubscriber::builder()
         .with_max_level(level)
         .with_target(false)
@@ -273,7 +310,9 @@ async fn main() -> Result<()> {
             // Parse defines
             for def in defines {
                 if let Some((key, value)) = def.split_once('=') {
-                    options.defines.push((key.to_string(), Some(value.to_string())));
+                    options
+                        .defines
+                        .push((key.to_string(), Some(value.to_string())));
                 } else {
                     options.defines.push((def, None));
                 }
@@ -289,7 +328,11 @@ async fn main() -> Result<()> {
                         });
                         println!("{}", serde_json::to_string_pretty(&json)?);
                     } else {
-                        println!("Compiled: {} -> {}", source.display(), result.output_path.display());
+                        println!(
+                            "Compiled: {} -> {}",
+                            source.display(),
+                            result.output_path.display()
+                        );
                         for warning in &result.warnings {
                             println!("  Warning: {}", warning);
                         }
@@ -339,13 +382,22 @@ async fn main() -> Result<()> {
                 println!("  Template: {:?}", template_type);
                 println!("  Next steps:");
                 println!("    1. Edit {} as needed", output_path.display());
-                println!("    2. Compile: ebpf-assist compile {}", output_path.display());
+                println!(
+                    "    2. Compile: ebpf-assist compile {}",
+                    output_path.display()
+                );
                 println!("    3. Load: ebpf-assist load {}.o", name);
             }
             Ok(())
         }
 
-        Commands::Load { path, name } => commands::load(&path, name.as_deref(), cli.json).await,
+        Commands::Load { path, name, isolate } => {
+            if isolate {
+                vm::load_isolated(&path, name.as_deref(), cli.json).await
+            } else {
+                commands::load(&path, name.as_deref(), cli.json).await
+            }
+        }
         Commands::Unload { id } => commands::unload(id, cli.json).await,
         Commands::Attach { id, target } => commands::attach(id, &target, cli.json).await,
         Commands::Detach { id } => commands::detach(id, cli.json).await,
@@ -362,12 +414,22 @@ async fn main() -> Result<()> {
             MapCommands::Read { id, name, key } => {
                 commands::map_read(id, &name, key.as_deref(), cli.json).await
             }
-            MapCommands::Write { id, name, key, value } => {
-                commands::map_write(id, &name, &key, &value, cli.json).await
-            }
+            MapCommands::Write {
+                id,
+                name,
+                key,
+                value,
+            } => commands::map_write(id, &name, &key, &value, cli.json).await,
             MapCommands::Delete { id, name, key } => {
                 commands::map_delete(id, &name, &key, cli.json).await
             }
+        },
+        Commands::Vm(cmd) => match cmd {
+            VmCommands::Init => vm::init(cli.json).await,
+            VmCommands::List => vm::list(cli.json).await,
+            VmCommands::Stop { vm_id } => vm::stop(&vm_id, cli.json).await,
+            VmCommands::Status { vm_id } => vm::status(&vm_id, cli.json).await,
+            VmCommands::Pool => vm::pool_status(cli.json).await,
         },
     }
 }

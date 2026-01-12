@@ -10,7 +10,9 @@ use aya::Bpf;
 use capctl::caps::Cap;
 use tracing::{debug, info, warn};
 
-use ebpf_assist_common::{MapEntry, MapInfo, MapType, PolicyAction, ProgramId, ProgramInfo, ProgramType};
+use ebpf_assist_common::{
+    MapEntry, MapInfo, MapType, PolicyAction, ProgramId, ProgramInfo, ProgramType,
+};
 
 use crate::caps::with_caps;
 
@@ -109,7 +111,11 @@ impl Loader {
     }
 
     /// Detect the program name and type from the loaded eBPF object.
-    fn detect_program(&self, bpf: &Bpf, requested_name: Option<&str>) -> Result<(String, ProgramType)> {
+    fn detect_program(
+        &self,
+        bpf: &Bpf,
+        requested_name: Option<&str>,
+    ) -> Result<(String, ProgramType)> {
         // Get all program names
         let program_names: Vec<_> = bpf.programs().map(|(name, _)| name.to_string()).collect();
 
@@ -215,10 +221,7 @@ impl Loader {
 
     /// Detach a program from its target.
     pub fn detach(&mut self, id: ProgramId) -> Result<()> {
-        let loaded = self
-            .programs
-            .get_mut(&id)
-            .context("Program not found")?;
+        let loaded = self.programs.get_mut(&id).context("Program not found")?;
 
         if !loaded.info.attached {
             anyhow::bail!("Program is not attached");
@@ -236,10 +239,7 @@ impl Loader {
 
     /// Unload a program.
     pub fn unload(&mut self, id: ProgramId) -> Result<()> {
-        let loaded = self
-            .programs
-            .remove(&id)
-            .context("Program not found")?;
+        let loaded = self.programs.remove(&id).context("Program not found")?;
 
         info!("Unloading program: {}", loaded.info.name);
 
@@ -331,7 +331,12 @@ impl Loader {
     }
 
     /// Read map entries.
-    pub fn read_map(&self, id: ProgramId, map_name: &str, key: Option<&str>) -> Result<Vec<MapEntry>> {
+    pub fn read_map(
+        &self,
+        id: ProgramId,
+        map_name: &str,
+        key: Option<&str>,
+    ) -> Result<Vec<MapEntry>> {
         let loaded = self.programs.get(&id).context("Program not found")?;
 
         let map = loaded.bpf.map(map_name).context("Map not found")?;
@@ -360,7 +365,9 @@ impl Loader {
 
         if let Some(key_str) = key {
             // Read specific index
-            let idx: u32 = key_str.parse().context("Key must be numeric index for array maps")?;
+            let idx: u32 = key_str
+                .parse()
+                .context("Key must be numeric index for array maps")?;
             let value = array.get(&idx, 0)?;
             entries.push(MapEntry {
                 key: idx.to_string(),
@@ -442,7 +449,13 @@ impl Loader {
     }
 
     /// Write to a map.
-    pub fn write_map(&mut self, id: ProgramId, map_name: &str, key: &str, value: &str) -> Result<()> {
+    pub fn write_map(
+        &mut self,
+        id: ProgramId,
+        map_name: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<()> {
         let loaded = self.programs.get_mut(&id).context("Program not found")?;
 
         let map = loaded.bpf.map_mut(map_name).context("Map not found")?;
@@ -452,7 +465,9 @@ impl Loader {
             MapType::Array => {
                 use aya::maps::Array;
                 let mut array: Array<_, u64> = Array::try_from(map)?;
-                let idx: u32 = key.parse().context("Key must be numeric index for array maps")?;
+                let idx: u32 = key
+                    .parse()
+                    .context("Key must be numeric index for array maps")?;
                 let val: u64 = Self::parse_value(value)?;
                 array.set(idx, val, 0)?;
                 info!("Wrote to array map {}: [{}] = {}", map_name, idx, val);

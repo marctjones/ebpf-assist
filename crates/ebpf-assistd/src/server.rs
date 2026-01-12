@@ -17,8 +17,7 @@ use crate::handler::{handle_request, State};
 pub async fn run(socket_path: impl AsRef<Path>) -> Result<()> {
     let socket_path = socket_path.as_ref();
 
-    let listener = UnixListener::bind(socket_path)
-        .context("Failed to bind to socket")?;
+    let listener = UnixListener::bind(socket_path).context("Failed to bind to socket")?;
 
     // Make socket accessible
     #[cfg(unix)]
