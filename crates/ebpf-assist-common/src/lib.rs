@@ -22,7 +22,78 @@ pub enum ProgramType {
     CgroupSkb,
     SocketFilter,
     PerfEvent,
+    Lsm,
+    StructOps,
     Unknown,
+}
+
+/// Policy action for a program type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyAction {
+    /// Allow without any notification.
+    Allow,
+    /// Allow but warn the user.
+    Warn,
+    /// Deny the operation.
+    Deny,
+}
+
+impl ProgramType {
+    /// Get the default policy action for this program type.
+    ///
+    /// Policy rationale:
+    /// - Allow: Read-only observability (kprobe, tracepoint, perf_event, etc.)
+    /// - Warn: Can modify network traffic (xdp, tc, socket_filter)
+    /// - Deny: Security-critical (lsm, struct_ops, cgroup)
+    pub fn default_policy(&self) -> PolicyAction {
+        match self {
+            // Low risk: Read-only observability - core use case
+            ProgramType::KProbe
+            | ProgramType::KRetProbe
+            | ProgramType::UProbe
+            | ProgramType::URetProbe
+            | ProgramType::TracePoint
+            | ProgramType::RawTracePoint
+            | ProgramType::PerfEvent => PolicyAction::Allow,
+
+            // Medium risk: Can modify network traffic but common for monitoring
+            ProgramType::Xdp
+            | ProgramType::SchedClassifier
+            | ProgramType::SocketFilter => PolicyAction::Warn,
+
+            // Higher risk: Security-critical, can bypass protections
+            ProgramType::Lsm
+            | ProgramType::StructOps
+            | ProgramType::CgroupSkb => PolicyAction::Deny,
+
+            // Unknown types are denied by default for safety
+            ProgramType::Unknown => PolicyAction::Deny,
+        }
+    }
+
+    /// Human-readable description of why this policy exists.
+    pub fn policy_reason(&self) -> &'static str {
+        match self {
+            ProgramType::KProbe | ProgramType::KRetProbe => {
+                "Kernel function tracing (read-only observability)"
+            }
+            ProgramType::UProbe | ProgramType::URetProbe => {
+                "Userspace function tracing (read-only observability)"
+            }
+            ProgramType::TracePoint | ProgramType::RawTracePoint => {
+                "Static kernel tracepoints (read-only observability)"
+            }
+            ProgramType::PerfEvent => "Performance monitoring (read-only observability)",
+            ProgramType::Xdp => "XDP can drop or modify network packets",
+            ProgramType::SchedClassifier => "TC classifier can modify network traffic",
+            ProgramType::SocketFilter => "Socket filter can inspect/filter network data",
+            ProgramType::CgroupSkb => "Cgroup programs can control container networking",
+            ProgramType::Lsm => "LSM programs can bypass security policies",
+            ProgramType::StructOps => "struct_ops can replace kernel code paths",
+            ProgramType::Unknown => "Unknown program type - denied for safety",
+        }
+    }
 }
 
 /// Information about a loaded eBPF program.
@@ -92,6 +163,9 @@ pub enum Response {
         id: ProgramId,
         name: String,
         program_type: ProgramType,
+        /// Warning message if policy action was Warn.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warning: Option<String>,
     },
 
     /// Program unloaded successfully.
@@ -173,6 +247,8 @@ pub enum ErrorCode {
     AuthRequired,
     /// Authorization denied by polkit.
     AuthDenied,
+    /// Policy violation (program type not allowed).
+    PolicyViolation,
 }
 
 /// Default socket path for the daemon.
@@ -208,8 +284,41 @@ mod tests {
             id: ProgramId(1),
             name: "test".to_string(),
             program_type: ProgramType::KProbe,
+            warning: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("loaded"));
+        // warning should be omitted when None
+        assert!(!json.contains("warning"));
+    }
+
+    #[test]
+    fn test_response_with_warning() {
+        let resp = Response::Loaded {
+            id: ProgramId(1),
+            name: "test".to_string(),
+            program_type: ProgramType::Xdp,
+            warning: Some("XDP can modify packets".to_string()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("warning"));
+        assert!(json.contains("XDP can modify packets"));
+    }
+
+    #[test]
+    fn test_policy_defaults() {
+        // Observability types should be allowed
+        assert_eq!(ProgramType::KProbe.default_policy(), PolicyAction::Allow);
+        assert_eq!(ProgramType::TracePoint.default_policy(), PolicyAction::Allow);
+        assert_eq!(ProgramType::PerfEvent.default_policy(), PolicyAction::Allow);
+
+        // Network types should warn
+        assert_eq!(ProgramType::Xdp.default_policy(), PolicyAction::Warn);
+        assert_eq!(ProgramType::SchedClassifier.default_policy(), PolicyAction::Warn);
+
+        // Security-critical types should be denied
+        assert_eq!(ProgramType::Lsm.default_policy(), PolicyAction::Deny);
+        assert_eq!(ProgramType::StructOps.default_policy(), PolicyAction::Deny);
+        assert_eq!(ProgramType::Unknown.default_policy(), PolicyAction::Deny);
     }
 }

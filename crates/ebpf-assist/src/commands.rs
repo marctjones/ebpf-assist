@@ -61,6 +61,12 @@ fn improve_error(code: ErrorCode, message: &str) -> String {
         ErrorCode::NotAttached => {
             improved.push_str("\n\n💡 Program is not attached. Attach first with: ebpf-assist attach <id> <target>");
         }
+        ErrorCode::PolicyViolation => {
+            improved.push_str("\n\n💡 This program type is blocked by security policy.");
+            improved.push_str("\n   Allowed types: kprobe, kretprobe, uprobe, uretprobe, tracepoint, perf_event");
+            improved.push_str("\n   Warn types: xdp, tc, socket_filter");
+            improved.push_str("\n   Blocked: lsm, struct_ops, cgroup");
+        }
         _ => {}
     }
 
@@ -92,15 +98,24 @@ pub async fn load(path: &Path, program_name: Option<&str>, json_output: bool) ->
             id,
             name,
             program_type,
+            warning,
         } => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&json!({
+                let mut result = json!({
                     "success": true,
                     "id": id.0,
                     "name": name,
                     "type": format!("{:?}", program_type)
-                }))?);
+                });
+                if let Some(ref w) = warning {
+                    result["warning"] = serde_json::Value::String(w.clone());
+                }
+                println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
+                // Show warning first if present
+                if let Some(ref w) = warning {
+                    eprintln!("\n⚠️  {}\n", w);
+                }
                 println!("Loaded program:");
                 println!("  ID:   {}", id.0);
                 println!("  Name: {}", name);

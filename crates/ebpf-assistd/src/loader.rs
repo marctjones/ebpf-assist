@@ -8,9 +8,9 @@ use anyhow::{Context, Result};
 use aya::programs::Program;
 use aya::Bpf;
 use capctl::caps::Cap;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
-use ebpf_assist_common::{ProgramId, ProgramInfo, ProgramType};
+use ebpf_assist_common::{PolicyAction, ProgramId, ProgramInfo, ProgramType};
 
 use crate::caps::with_caps;
 
@@ -21,6 +21,13 @@ static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 pub struct LoadedProgram {
     pub info: ProgramInfo,
     pub bpf: Bpf,
+}
+
+/// Result of loading a program, may include a policy warning.
+pub struct LoadResult {
+    pub info: ProgramInfo,
+    /// Warning message if policy action was Warn.
+    pub warning: Option<String>,
 }
 
 /// Manages loaded eBPF programs.
@@ -36,7 +43,12 @@ impl Loader {
     }
 
     /// Load an eBPF program from a file.
-    pub fn load(&mut self, path: &Path, program_name: Option<&str>) -> Result<ProgramInfo> {
+    ///
+    /// Checks the program type against the default policy:
+    /// - Allow: Load proceeds normally
+    /// - Warn: Load proceeds but returns a warning
+    /// - Deny: Load fails with a policy violation error
+    pub fn load(&mut self, path: &Path, program_name: Option<&str>) -> Result<LoadResult> {
         info!("Loading eBPF program from: {}", path.display());
 
         // Load with capabilities
@@ -44,8 +56,33 @@ impl Loader {
             Bpf::load_file(path).context("Failed to load eBPF program")
         })?;
 
-        // Find the program
+        // Find the program and detect type
         let (name, prog_type) = self.detect_program(&bpf, program_name)?;
+
+        // Check policy for this program type
+        let policy = prog_type.default_policy();
+        let reason = prog_type.policy_reason();
+
+        let warning = match policy {
+            PolicyAction::Allow => {
+                debug!("Policy: Allow {:?} - {}", prog_type, reason);
+                None
+            }
+            PolicyAction::Warn => {
+                warn!("Policy: Warn {:?} - {}", prog_type, reason);
+                Some(format!(
+                    "Warning: {:?} program loaded. {}",
+                    prog_type, reason
+                ))
+            }
+            PolicyAction::Deny => {
+                anyhow::bail!(
+                    "Policy violation: {:?} programs are not allowed. {}",
+                    prog_type,
+                    reason
+                );
+            }
+        };
 
         let id = ProgramId(NEXT_ID.fetch_add(1, Ordering::SeqCst));
 
@@ -68,7 +105,7 @@ impl Loader {
             },
         );
 
-        Ok(info)
+        Ok(LoadResult { info, warning })
     }
 
     /// Detect the program name and type from the loaded eBPF object.

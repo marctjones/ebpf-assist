@@ -423,11 +423,16 @@ async fn tool_load(args: serde_json::Value) -> Result<ToolCallResult> {
     }).await?;
 
     match response {
-        Response::Loaded { id, name, program_type } => {
-            Ok(ToolCallResult::text(format!(
-                "Loaded eBPF program:\n  ID: {}\n  Name: {}\n  Type: {:?}\n\nUse ebpf_attach with id={} to attach to a kernel hook.",
-                id.0, name, program_type, id.0
-            )))
+        Response::Loaded { id, name, program_type, warning } => {
+            let mut msg = format!(
+                "Loaded eBPF program:\n  ID: {}\n  Name: {}\n  Type: {:?}",
+                id.0, name, program_type
+            );
+            if let Some(w) = warning {
+                msg.push_str(&format!("\n\n⚠️ {}", w));
+            }
+            msg.push_str(&format!("\n\nUse ebpf_attach with id={} to attach to a kernel hook.", id.0));
+            Ok(ToolCallResult::text(msg))
         }
         Response::Error { message, code } => {
             Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))

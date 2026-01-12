@@ -61,12 +61,19 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
 
             let mut state = state.lock().await;
             match state.loader.load(&path, program_name.as_deref()) {
-                Ok(info) => {
-                    info!("Loaded program: {} ({:?})", info.name, info.program_type);
+                Ok(result) => {
+                    if let Some(ref warning) = result.warning {
+                        warn!("Policy warning: {}", warning);
+                    }
+                    info!(
+                        "Loaded program: {} ({:?})",
+                        result.info.name, result.info.program_type
+                    );
                     Response::Loaded {
-                        id: info.id,
-                        name: info.name,
-                        program_type: info.program_type,
+                        id: result.info.id,
+                        name: result.info.name,
+                        program_type: result.info.program_type,
+                        warning: result.warning,
                     }
                 }
                 Err(e) => {
@@ -239,7 +246,9 @@ async fn check_auth(state: &Arc<Mutex<State>>, action: &str) -> Result<(), Respo
 /// Convert an error to a Response::Error with appropriate code.
 fn error_response(e: &anyhow::Error) -> Response {
     let message = e.to_string();
-    let code = if message.contains("not found") || message.contains("No such file") {
+    let code = if message.contains("Policy violation") {
+        ErrorCode::PolicyViolation
+    } else if message.contains("not found") || message.contains("No such file") {
         ErrorCode::NotFound
     } else if message.contains("Permission") || message.contains("Capability") {
         ErrorCode::CapabilityError
