@@ -2,7 +2,10 @@
 
 mod client;
 mod commands;
+mod compile;
 mod trigger;
+
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -18,12 +21,59 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// Output in JSON format
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Compile an eBPF C source file to an object file
+    Compile {
+        /// Path to the eBPF C source file
+        source: PathBuf,
+
+        /// Output path for the object file (default: source.o)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Additional include directories
+        #[arg(short = 'I', long = "include")]
+        includes: Vec<PathBuf>,
+
+        /// Preprocessor defines (KEY or KEY=VALUE)
+        #[arg(short = 'D', long = "define")]
+        defines: Vec<String>,
+
+        /// Disable BTF generation
+        #[arg(long)]
+        no_btf: bool,
+
+        /// Optimization level (0-3)
+        #[arg(short = 'O', long = "opt", default_value = "2")]
+        opt_level: u8,
+    },
+
+    /// Create a new eBPF program from a template
+    New {
+        /// Template type (kprobe, kretprobe, tracepoint, xdp, raw_tracepoint)
+        template: String,
+
+        /// Program name
+        name: String,
+
+        /// Target function/tracepoint for the template
+        #[arg(short, long)]
+        target: Option<String>,
+
+        /// Output directory (default: current directory)
+        #[arg(short, long)]
+        output_dir: Option<PathBuf>,
+    },
+
     /// Load an eBPF program from a file
     Load {
         /// Path to the eBPF object file
@@ -164,16 +214,104 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
-        Commands::Load { path, name } => commands::load(&path, name.as_deref()).await,
-        Commands::Unload { id } => commands::unload(id).await,
-        Commands::Attach { id, target } => commands::attach(id, &target).await,
-        Commands::Detach { id } => commands::detach(id).await,
-        Commands::List => commands::list().await,
-        Commands::Status => commands::status().await,
-        Commands::Ping => commands::ping().await,
-        Commands::Unlock => commands::unlock().await,
-        Commands::Lock => commands::lock().await,
-        Commands::Auth => commands::auth_status().await,
+        Commands::Compile {
+            source,
+            output,
+            includes,
+            defines,
+            no_btf,
+            opt_level,
+        } => {
+            let mut options = compile::CompileOptions::default();
+            options.includes = includes;
+            options.btf = !no_btf;
+            options.opt_level = opt_level;
+
+            // Parse defines
+            for def in defines {
+                if let Some((key, value)) = def.split_once('=') {
+                    options.defines.push((key.to_string(), Some(value.to_string())));
+                } else {
+                    options.defines.push((def, None));
+                }
+            }
+
+            match compile::compile(&source, output.as_deref(), &options) {
+                Ok(result) => {
+                    if cli.json {
+                        let json = serde_json::json!({
+                            "success": true,
+                            "output": result.output_path.display().to_string(),
+                            "warnings": result.warnings
+                        });
+                        println!("{}", serde_json::to_string_pretty(&json)?);
+                    } else {
+                        println!("Compiled: {} -> {}", source.display(), result.output_path.display());
+                        for warning in &result.warnings {
+                            println!("  Warning: {}", warning);
+                        }
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    if cli.json {
+                        let json = serde_json::json!({
+                            "success": false,
+                            "error": e.to_string()
+                        });
+                        println!("{}", serde_json::to_string_pretty(&json)?);
+                        std::process::exit(1);
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
+        }
+
+        Commands::New {
+            template,
+            name,
+            target,
+            output_dir,
+        } => {
+            let template_type: compile::TemplateType = template.parse()?;
+            let content = compile::generate_template(template_type, &name, target.as_deref());
+
+            let output_path = output_dir
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(format!("{}.c", name));
+
+            std::fs::write(&output_path, &content)?;
+
+            if cli.json {
+                let json = serde_json::json!({
+                    "success": true,
+                    "path": output_path.display().to_string(),
+                    "template": format!("{:?}", template_type),
+                    "name": name
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            } else {
+                println!("Created: {}", output_path.display());
+                println!("  Template: {:?}", template_type);
+                println!("  Next steps:");
+                println!("    1. Edit {} as needed", output_path.display());
+                println!("    2. Compile: ebpf-assist compile {}", output_path.display());
+                println!("    3. Load: ebpf-assist load {}.o", name);
+            }
+            Ok(())
+        }
+
+        Commands::Load { path, name } => commands::load(&path, name.as_deref(), cli.json).await,
+        Commands::Unload { id } => commands::unload(id, cli.json).await,
+        Commands::Attach { id, target } => commands::attach(id, &target, cli.json).await,
+        Commands::Detach { id } => commands::detach(id, cli.json).await,
+        Commands::List => commands::list(cli.json).await,
+        Commands::Status => commands::status(cli.json).await,
+        Commands::Ping => commands::ping(cli.json).await,
+        Commands::Unlock => commands::unlock(cli.json).await,
+        Commands::Lock => commands::lock(cli.json).await,
+        Commands::Auth => commands::auth_status(cli.json).await,
         Commands::Trigger(cmd) => trigger::run(cmd).await,
         Commands::Output(cmd) => trigger::output(cmd).await,
     }

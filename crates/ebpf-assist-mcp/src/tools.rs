@@ -32,6 +32,55 @@ pub async fn handle_initialize(_params: serde_json::Value) -> Result<serde_json:
 pub async fn handle_tools_list() -> Result<serde_json::Value> {
     let tools = vec![
         ToolDefinition {
+            name: "ebpf_new".to_string(),
+            description: "Create a new eBPF program from a template. Templates include kprobe (function entry), kretprobe (function return), tracepoint, xdp (packet processing), and raw_tracepoint.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "template": {
+                        "type": "string",
+                        "enum": ["kprobe", "kretprobe", "tracepoint", "xdp", "raw_tracepoint"],
+                        "description": "Template type: kprobe, kretprobe, tracepoint, xdp, raw_tracepoint"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Program name (used for filename and function name)"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Target for the template (e.g., 'do_sys_openat2' for kprobe, 'syscalls/sys_enter_openat' for tracepoint)"
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory (default: current directory)"
+                    }
+                },
+                "required": ["template", "name"]
+            }),
+        },
+        ToolDefinition {
+            name: "ebpf_compile".to_string(),
+            description: "Compile an eBPF C source file to an object file. Wraps clang with the correct flags for BPF target.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the eBPF C source file"
+                    },
+                    "output": {
+                        "type": "string",
+                        "description": "Output path for object file (default: source.o)"
+                    },
+                    "opt_level": {
+                        "type": "integer",
+                        "description": "Optimization level 0-3 (default: 2)"
+                    }
+                },
+                "required": ["source"]
+            }),
+        },
+        ToolDefinition {
             name: "ebpf_load".to_string(),
             description: "Load an eBPF program from an object file. Returns the program ID for use with attach/detach.".to_string(),
             input_schema: serde_json::json!({
@@ -173,6 +222,8 @@ pub async fn handle_tools_call(params: serde_json::Value) -> Result<serde_json::
     debug!("Tool call: {} with args: {:?}", call.name, call.arguments);
 
     let result = match call.name.as_str() {
+        "ebpf_new" => tool_new(call.arguments).await,
+        "ebpf_compile" => tool_compile(call.arguments).await,
         "ebpf_load" => tool_load(call.arguments).await,
         "ebpf_unload" => tool_unload(call.arguments).await,
         "ebpf_attach" => tool_attach(call.arguments).await,
@@ -216,6 +267,126 @@ async fn daemon_request(request: Request) -> Result<Response> {
         .context("Failed to parse daemon response")?;
 
     Ok(response)
+}
+
+#[derive(Deserialize)]
+struct NewArgs {
+    template: String,
+    name: String,
+    target: Option<String>,
+    output_dir: Option<String>,
+}
+
+async fn tool_new(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: NewArgs = serde_json::from_value(args)?;
+
+    let mut cmd_args = vec![
+        "new".to_string(),
+        args.template.clone(),
+        args.name.clone(),
+        "--json".to_string(),
+    ];
+
+    if let Some(target) = &args.target {
+        cmd_args.push("--target".to_string());
+        cmd_args.push(target.clone());
+    }
+
+    if let Some(output_dir) = &args.output_dir {
+        cmd_args.push("--output-dir".to_string());
+        cmd_args.push(output_dir.clone());
+    }
+
+    let output = tokio::process::Command::new("ebpf-assist")
+        .args(&cmd_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context("Failed to run ebpf-assist new")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        // Parse JSON output
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let path = json.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let template = json.get("template").and_then(|v| v.as_str()).unwrap_or("");
+            Ok(ToolCallResult::text(format!(
+                "Created eBPF program from {} template:\n  Path: {}\n\nNext steps:\n  1. Edit {} as needed\n  2. Compile: ebpf_compile(source=\"{}\")\n  3. Load: ebpf_load(path=\"{}.o\")",
+                template, path, path, path, args.name
+            )))
+        } else {
+            Ok(ToolCallResult::text(format!("{}{}", stdout, stderr)))
+        }
+    } else {
+        Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
+    }
+}
+
+#[derive(Deserialize)]
+struct CompileArgs {
+    source: String,
+    output: Option<String>,
+    opt_level: Option<u8>,
+}
+
+async fn tool_compile(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: CompileArgs = serde_json::from_value(args)?;
+
+    let mut cmd_args = vec![
+        "compile".to_string(),
+        args.source.clone(),
+        "--json".to_string(),
+    ];
+
+    if let Some(output) = &args.output {
+        cmd_args.push("--output".to_string());
+        cmd_args.push(output.clone());
+    }
+
+    if let Some(opt) = args.opt_level {
+        cmd_args.push("--opt".to_string());
+        cmd_args.push(opt.to_string());
+    }
+
+    let output = tokio::process::Command::new("ebpf-assist")
+        .args(&cmd_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context("Failed to run ebpf-assist compile")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let output_path = json.get("output").and_then(|v| v.as_str()).unwrap_or("");
+            let warnings = json.get("warnings").and_then(|v| v.as_array()).map(|w| {
+                w.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n")
+            }).unwrap_or_default();
+
+            let mut msg = format!("Compiled successfully:\n  Output: {}", output_path);
+            if !warnings.is_empty() {
+                msg.push_str(&format!("\n\nWarnings:\n{}", warnings));
+            }
+            msg.push_str(&format!("\n\nNext: ebpf_load(path=\"{}\")", output_path));
+            Ok(ToolCallResult::text(msg))
+        } else {
+            Ok(ToolCallResult::text(format!("{}{}", stdout, stderr)))
+        }
+    } else {
+        // Parse error JSON
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let error = json.get("error").and_then(|v| v.as_str()).unwrap_or("Compilation failed");
+            Ok(ToolCallResult::error(error.to_string()))
+        } else {
+            Ok(ToolCallResult::error(format!("{}{}", stdout, stderr)))
+        }
+    }
 }
 
 #[derive(Deserialize)]
