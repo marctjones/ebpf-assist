@@ -13,6 +13,22 @@ use ebpf_assist_common::{user_socket_path, ProgramId, Request, Response};
 
 use crate::protocol::{ToolCallParams, ToolCallResult, ToolDefinition};
 
+/// Find the ebpf-assist CLI binary.
+/// First tries adjacent to the MCP binary, then falls back to PATH.
+fn find_cli_binary() -> PathBuf {
+    // Try to find it relative to the current executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            let cli_path = dir.join("ebpf-assist");
+            if cli_path.is_file() {
+                return cli_path;
+            }
+        }
+    }
+    // Fall back to PATH lookup
+    PathBuf::from("ebpf-assist")
+}
+
 /// Handle initialize request.
 pub async fn handle_initialize(_params: serde_json::Value) -> Result<serde_json::Value> {
     info!("MCP initialize");
@@ -297,7 +313,7 @@ async fn tool_new(args: serde_json::Value) -> Result<ToolCallResult> {
         cmd_args.push(output_dir.clone());
     }
 
-    let output = tokio::process::Command::new("ebpf-assist")
+    let output = tokio::process::Command::new(find_cli_binary())
         .args(&cmd_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -351,7 +367,7 @@ async fn tool_compile(args: serde_json::Value) -> Result<ToolCallResult> {
         cmd_args.push(opt.to_string());
     }
 
-    let output = tokio::process::Command::new("ebpf-assist")
+    let output = tokio::process::Command::new(find_cli_binary())
         .args(&cmd_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -579,7 +595,7 @@ async fn tool_trigger(args: serde_json::Value) -> Result<ToolCallResult> {
     cmd_args.extend(args.args.clone());
 
     // Run ebpf-assist trigger command
-    let output = tokio::process::Command::new("ebpf-assist")
+    let output = tokio::process::Command::new(find_cli_binary())
         .args(&cmd_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -619,7 +635,7 @@ async fn tool_trace(args: serde_json::Value) -> Result<ToolCallResult> {
     let args: TraceArgs = serde_json::from_value(args).unwrap_or_default();
 
     // Run ebpf-assist output trace command
-    let output = tokio::process::Command::new("ebpf-assist")
+    let output = tokio::process::Command::new(find_cli_binary())
         .args([
             "output", "trace",
             "--lines", &args.lines.to_string(),
