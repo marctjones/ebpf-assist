@@ -225,6 +225,90 @@ pub async fn handle_tools_list() -> Result<serde_json::Value> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "ebpf_map_list".to_string(),
+            description: "List all BPF maps for a loaded program. Maps are key-value stores that eBPF programs use to store data and communicate with userspace.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Program ID returned from ebpf_load"
+                    }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDefinition {
+            name: "ebpf_map_read".to_string(),
+            description: "Read entries from a BPF map. Can read a specific key or dump all entries.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Program ID"
+                    },
+                    "map_name": {
+                        "type": "string",
+                        "description": "Name of the map (from ebpf_map_list)"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Optional: specific key to read (hex with 0x prefix or decimal). If omitted, dumps all entries."
+                    }
+                },
+                "required": ["id", "map_name"]
+            }),
+        },
+        ToolDefinition {
+            name: "ebpf_map_write".to_string(),
+            description: "Write a value to a BPF map. Useful for configuring program behavior or injecting test data.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Program ID"
+                    },
+                    "map_name": {
+                        "type": "string",
+                        "description": "Name of the map"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Key (hex with 0x prefix or decimal)"
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Value (hex with 0x prefix or decimal)"
+                    }
+                },
+                "required": ["id", "map_name", "key", "value"]
+            }),
+        },
+        ToolDefinition {
+            name: "ebpf_map_delete".to_string(),
+            description: "Delete an entry from a BPF hash map. Note: Array maps don't support deletion.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Program ID"
+                    },
+                    "map_name": {
+                        "type": "string",
+                        "description": "Name of the map"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Key to delete (hex with 0x prefix or decimal)"
+                    }
+                },
+                "required": ["id", "map_name", "key"]
+            }),
+        },
     ];
 
     Ok(serde_json::json!({ "tools": tools }))
@@ -249,6 +333,10 @@ pub async fn handle_tools_call(params: serde_json::Value) -> Result<serde_json::
         "ebpf_unlock" => tool_unlock().await,
         "ebpf_trigger" => tool_trigger(call.arguments).await,
         "ebpf_trace" => tool_trace(call.arguments).await,
+        "ebpf_map_list" => tool_map_list(call.arguments).await,
+        "ebpf_map_read" => tool_map_read(call.arguments).await,
+        "ebpf_map_write" => tool_map_write(call.arguments).await,
+        "ebpf_map_delete" => tool_map_delete(call.arguments).await,
         _ => Ok(ToolCallResult::error(format!("Unknown tool: {}", call.name))),
     };
 
@@ -662,5 +750,144 @@ async fn tool_trace(args: serde_json::Value) -> Result<ToolCallResult> {
             "Failed to read trace_pipe. You may need root access.\n{}",
             stderr
         )))
+    }
+}
+
+// Map tool implementations
+
+async fn tool_map_list(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: IdArgs = serde_json::from_value(args)?;
+
+    let response = daemon_request(Request::MapList {
+        id: ProgramId(args.id),
+    }).await?;
+
+    match response {
+        Response::Maps { maps } => {
+            if maps.is_empty() {
+                Ok(ToolCallResult::text(format!("No maps in program {}", args.id)))
+            } else {
+                let mut output = format!("Maps for program {}:\n\n", args.id);
+                output.push_str(&format!("{:<20} {:<15} {:<10} {:<10} {}\n",
+                    "NAME", "TYPE", "KEY SIZE", "VAL SIZE", "MAX ENTRIES"));
+                output.push_str(&"-".repeat(70));
+                output.push('\n');
+
+                for m in maps {
+                    output.push_str(&format!(
+                        "{:<20} {:<15} {:<10} {:<10} {}\n",
+                        m.name,
+                        format!("{:?}", m.map_type),
+                        m.key_size,
+                        m.value_size,
+                        m.max_entries
+                    ));
+                }
+                Ok(ToolCallResult::text(output))
+            }
+        }
+        Response::Error { message, code } => {
+            Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
+        }
+        _ => Ok(ToolCallResult::error("Unexpected response from daemon")),
+    }
+}
+
+#[derive(Deserialize)]
+struct MapReadArgs {
+    id: u32,
+    map_name: String,
+    key: Option<String>,
+}
+
+async fn tool_map_read(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: MapReadArgs = serde_json::from_value(args)?;
+
+    let response = daemon_request(Request::MapRead {
+        id: ProgramId(args.id),
+        map_name: args.map_name.clone(),
+        key: args.key.clone(),
+    }).await?;
+
+    match response {
+        Response::MapEntries { map_name, entries } => {
+            if entries.is_empty() {
+                Ok(ToolCallResult::text(format!("Map '{}' is empty", map_name)))
+            } else {
+                let mut output = format!("Map '{}' ({} entries):\n\n", map_name, entries.len());
+                output.push_str(&format!("{:<20} {:<20} {}\n", "KEY", "VALUE (hex)", "VALUE (dec)"));
+                output.push_str(&"-".repeat(60));
+                output.push('\n');
+
+                for e in entries {
+                    let dec = e.value_u64.map(|v| v.to_string()).unwrap_or_default();
+                    output.push_str(&format!("{:<20} {:<20} {}\n", e.key, e.value, dec));
+                }
+                Ok(ToolCallResult::text(output))
+            }
+        }
+        Response::Error { message, code } => {
+            Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
+        }
+        _ => Ok(ToolCallResult::error("Unexpected response from daemon")),
+    }
+}
+
+#[derive(Deserialize)]
+struct MapWriteArgs {
+    id: u32,
+    map_name: String,
+    key: String,
+    value: String,
+}
+
+async fn tool_map_write(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: MapWriteArgs = serde_json::from_value(args)?;
+
+    let response = daemon_request(Request::MapWrite {
+        id: ProgramId(args.id),
+        map_name: args.map_name.clone(),
+        key: args.key.clone(),
+        value: args.value.clone(),
+    }).await?;
+
+    match response {
+        Response::MapWritten { map_name, key } => {
+            Ok(ToolCallResult::text(format!(
+                "Wrote to map '{}' key '{}'\n\nUse ebpf_map_read to verify the written value.",
+                map_name, key
+            )))
+        }
+        Response::Error { message, code } => {
+            Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
+        }
+        _ => Ok(ToolCallResult::error("Unexpected response from daemon")),
+    }
+}
+
+#[derive(Deserialize)]
+struct MapDeleteArgs {
+    id: u32,
+    map_name: String,
+    key: String,
+}
+
+async fn tool_map_delete(args: serde_json::Value) -> Result<ToolCallResult> {
+    let args: MapDeleteArgs = serde_json::from_value(args)?;
+
+    let response = daemon_request(Request::MapDelete {
+        id: ProgramId(args.id),
+        map_name: args.map_name.clone(),
+        key: args.key.clone(),
+    }).await?;
+
+    match response {
+        Response::MapDeleted { map_name, key } => {
+            Ok(ToolCallResult::text(format!("Deleted from map '{}' key '{}'", map_name, key)))
+        }
+        Response::Error { message, code } => {
+            Ok(ToolCallResult::error(format!("[{:?}] {}", code, message)))
+        }
+        _ => Ok(ToolCallResult::error("Unexpected response from daemon")),
     }
 }

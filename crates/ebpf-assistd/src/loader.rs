@@ -10,7 +10,7 @@ use aya::Bpf;
 use capctl::caps::Cap;
 use tracing::{debug, info, warn};
 
-use ebpf_assist_common::{PolicyAction, ProgramId, ProgramInfo, ProgramType};
+use ebpf_assist_common::{MapEntry, MapInfo, MapType, PolicyAction, ProgramId, ProgramInfo, ProgramType};
 
 use crate::caps::with_caps;
 
@@ -255,6 +255,253 @@ impl Loader {
     /// Get the number of loaded programs.
     pub fn count(&self) -> usize {
         self.programs.len()
+    }
+
+    /// List maps for a loaded program.
+    pub fn list_maps(&self, id: ProgramId) -> Result<Vec<MapInfo>> {
+        let loaded = self.programs.get(&id).context("Program not found")?;
+
+        let mut maps = Vec::new();
+        for (name, map) in loaded.bpf.maps() {
+            let (key_size, value_size, max_entries) = Self::get_map_sizes(map);
+            let map_info = MapInfo {
+                name: name.to_string(),
+                map_type: Self::detect_map_type(map),
+                key_size,
+                value_size,
+                max_entries,
+            };
+            maps.push(map_info);
+        }
+
+        Ok(maps)
+    }
+
+    /// Get map size information from the Map enum.
+    fn get_map_sizes(map: &aya::maps::Map) -> (u32, u32, u32) {
+        use aya::maps::Map;
+        // Extract MapData from the Map enum to get info
+        let map_data = match map {
+            Map::Array(m) => m,
+            Map::HashMap(m) => m,
+            Map::PerCpuArray(m) => m,
+            Map::PerCpuHashMap(m) => m,
+            Map::PerfEventArray(m) => m,
+            Map::RingBuf(m) => m,
+            Map::LruHashMap(m) => m,
+            Map::Stack(m) => m,
+            Map::Queue(m) => m,
+            Map::BloomFilter(m) => m,
+            Map::LpmTrie(m) => m,
+            Map::PerCpuLruHashMap(m) => m,
+            Map::ProgramArray(m) => m,
+            Map::SockHash(m) => m,
+            Map::SockMap(m) => m,
+            Map::StackTraceMap(m) => m,
+            Map::CpuMap(m) => m,
+            Map::DevMap(m) => m,
+            Map::DevMapHash(m) => m,
+            Map::XskMap(m) => m,
+            Map::Unsupported(m) => m,
+        };
+
+        // Get info from MapData
+        if let Ok(info) = map_data.info() {
+            (info.key_size(), info.value_size(), info.max_entries())
+        } else {
+            (0, 0, 0)
+        }
+    }
+
+    /// Detect map type from aya Map.
+    fn detect_map_type(map: &aya::maps::Map) -> MapType {
+        use aya::maps::Map;
+        match map {
+            Map::HashMap(_) => MapType::Hash,
+            Map::Array(_) => MapType::Array,
+            Map::PerCpuHashMap(_) => MapType::PerCpuHash,
+            Map::PerCpuArray(_) => MapType::PerCpuArray,
+            Map::PerfEventArray(_) => MapType::PerfEventArray,
+            Map::RingBuf(_) => MapType::RingBuf,
+            Map::LruHashMap(_) => MapType::LruHash,
+            Map::Stack(_) => MapType::Stack,
+            Map::Queue(_) => MapType::Queue,
+            _ => MapType::Unknown,
+        }
+    }
+
+    /// Read map entries.
+    pub fn read_map(&self, id: ProgramId, map_name: &str, key: Option<&str>) -> Result<Vec<MapEntry>> {
+        let loaded = self.programs.get(&id).context("Program not found")?;
+
+        let map = loaded.bpf.map(map_name).context("Map not found")?;
+
+        let map_type = Self::detect_map_type(map);
+        let (key_size, value_size, _max_entries) = Self::get_map_sizes(map);
+
+        match map_type {
+            MapType::Array => self.read_array_map(map, key, value_size as usize),
+            MapType::Hash => self.read_hash_map(map, key, key_size as usize, value_size as usize),
+            _ => anyhow::bail!("Map type {:?} not yet supported for reading", map_type),
+        }
+    }
+
+    fn read_array_map(
+        &self,
+        map: &aya::maps::Map,
+        key: Option<&str>,
+        _value_size: usize,
+    ) -> Result<Vec<MapEntry>> {
+        use aya::maps::Array;
+
+        // Try to interpret as Array<MapData, u64>
+        let array: Array<_, u64> = Array::try_from(map)?;
+        let mut entries = Vec::new();
+
+        if let Some(key_str) = key {
+            // Read specific index
+            let idx: u32 = key_str.parse().context("Key must be numeric index for array maps")?;
+            let value = array.get(&idx, 0)?;
+            entries.push(MapEntry {
+                key: idx.to_string(),
+                value: format!("{:016x}", value),
+                value_u64: Some(value),
+                value_str: None,
+            });
+        } else {
+            // Dump all entries (limit to 100)
+            let max = std::cmp::min(array.len(), 100);
+            for idx in 0..max {
+                if let Ok(value) = array.get(&idx, 0) {
+                    entries.push(MapEntry {
+                        key: idx.to_string(),
+                        value: format!("{:016x}", value),
+                        value_u64: Some(value),
+                        value_str: None,
+                    });
+                }
+            }
+        }
+
+        Ok(entries)
+    }
+
+    fn read_hash_map(
+        &self,
+        map: &aya::maps::Map,
+        key: Option<&str>,
+        _key_size: usize,
+        _value_size: usize,
+    ) -> Result<Vec<MapEntry>> {
+        use aya::maps::HashMap;
+
+        // For simplicity, assume u32 keys and u64 values (common case)
+        // A more complete implementation would handle arbitrary sizes
+        let hash: HashMap<_, u32, u64> = HashMap::try_from(map)?;
+        let mut entries = Vec::new();
+
+        if let Some(key_str) = key {
+            // Read specific key
+            let k: u32 = Self::parse_key(key_str)?;
+            let value = hash.get(&k, 0)?;
+            entries.push(MapEntry {
+                key: format!("{:08x}", k),
+                value: format!("{:016x}", value),
+                value_u64: Some(value),
+                value_str: None,
+            });
+        } else {
+            // Dump all entries (limit to 100)
+            let mut count = 0;
+            for item in hash.iter() {
+                if count >= 100 {
+                    break;
+                }
+                if let Ok((k, v)) = item {
+                    entries.push(MapEntry {
+                        key: format!("{:08x}", k),
+                        value: format!("{:016x}", v),
+                        value_u64: Some(v),
+                        value_str: None,
+                    });
+                    count += 1;
+                }
+            }
+        }
+
+        Ok(entries)
+    }
+
+    /// Parse a key string (hex or decimal).
+    fn parse_key(key_str: &str) -> Result<u32> {
+        if key_str.starts_with("0x") || key_str.starts_with("0X") {
+            u32::from_str_radix(&key_str[2..], 16).context("Invalid hex key")
+        } else {
+            key_str.parse().context("Invalid key")
+        }
+    }
+
+    /// Write to a map.
+    pub fn write_map(&mut self, id: ProgramId, map_name: &str, key: &str, value: &str) -> Result<()> {
+        let loaded = self.programs.get_mut(&id).context("Program not found")?;
+
+        let map = loaded.bpf.map_mut(map_name).context("Map not found")?;
+        let map_type = Self::detect_map_type(map);
+
+        match map_type {
+            MapType::Array => {
+                use aya::maps::Array;
+                let mut array: Array<_, u64> = Array::try_from(map)?;
+                let idx: u32 = key.parse().context("Key must be numeric index for array maps")?;
+                let val: u64 = Self::parse_value(value)?;
+                array.set(idx, val, 0)?;
+                info!("Wrote to array map {}: [{}] = {}", map_name, idx, val);
+            }
+            MapType::Hash => {
+                use aya::maps::HashMap;
+                let mut hash: HashMap<_, u32, u64> = HashMap::try_from(map)?;
+                let k: u32 = Self::parse_key(key)?;
+                let v: u64 = Self::parse_value(value)?;
+                hash.insert(k, v, 0)?;
+                info!("Wrote to hash map {}: {} = {}", map_name, k, v);
+            }
+            _ => anyhow::bail!("Map type {:?} not yet supported for writing", map_type),
+        }
+
+        Ok(())
+    }
+
+    /// Parse a value string (hex or decimal).
+    fn parse_value(value_str: &str) -> Result<u64> {
+        if value_str.starts_with("0x") || value_str.starts_with("0X") {
+            u64::from_str_radix(&value_str[2..], 16).context("Invalid hex value")
+        } else {
+            value_str.parse().context("Invalid value")
+        }
+    }
+
+    /// Delete a map entry.
+    pub fn delete_map_entry(&mut self, id: ProgramId, map_name: &str, key: &str) -> Result<()> {
+        let loaded = self.programs.get_mut(&id).context("Program not found")?;
+
+        let map = loaded.bpf.map_mut(map_name).context("Map not found")?;
+        let map_type = Self::detect_map_type(map);
+
+        match map_type {
+            MapType::Hash => {
+                use aya::maps::HashMap;
+                let mut hash: HashMap<_, u32, u64> = HashMap::try_from(map)?;
+                let k: u32 = Self::parse_key(key)?;
+                hash.remove(&k)?;
+                info!("Deleted from hash map {}: key {}", map_name, k);
+            }
+            MapType::Array => {
+                anyhow::bail!("Cannot delete entries from array maps (use write with 0)");
+            }
+            _ => anyhow::bail!("Map type {:?} not yet supported for deletion", map_type),
+        }
+
+        Ok(())
     }
 }
 

@@ -529,3 +529,222 @@ pub async fn auth_status(json_output: bool) -> Result<()> {
         _ => bail!("Unexpected response from daemon"),
     }
 }
+
+/// List maps for a loaded program.
+pub async fn map_list(id: u32, json_output: bool) -> Result<()> {
+    let mut client = Client::connect().await.with_context(|| {
+        "Failed to connect to daemon. Is ebpf-assistd running?"
+    })?;
+
+    let response = client
+        .request(Request::MapList {
+            id: ProgramId(id),
+        })
+        .await?;
+
+    match response {
+        Response::Maps { maps } => {
+            if json_output {
+                let map_info: Vec<_> = maps
+                    .iter()
+                    .map(|m| {
+                        json!({
+                            "name": m.name,
+                            "type": format!("{:?}", m.map_type),
+                            "key_size": m.key_size,
+                            "value_size": m.value_size,
+                            "max_entries": m.max_entries
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "program_id": id,
+                    "maps": map_info
+                }))?);
+            } else if maps.is_empty() {
+                println!("No maps in program {}", id);
+            } else {
+                println!("Maps for program {}:", id);
+                println!("{:<20} {:<15} {:<10} {:<10} {}", "NAME", "TYPE", "KEY", "VALUE", "MAX ENTRIES");
+                println!("{}", "-".repeat(70));
+                for m in maps {
+                    println!(
+                        "{:<20} {:<15} {:<10} {:<10} {}",
+                        m.name,
+                        format!("{:?}", m.map_type),
+                        m.key_size,
+                        m.value_size,
+                        m.max_entries
+                    );
+                }
+            }
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "success": false,
+                    "error": message,
+                    "code": format!("{:?}", code)
+                }))?);
+                std::process::exit(1);
+            } else {
+                bail!("{}", improve_error(code, &message));
+            }
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}
+
+/// Read map entries.
+pub async fn map_read(id: u32, map_name: &str, key: Option<&str>, json_output: bool) -> Result<()> {
+    let mut client = Client::connect().await.with_context(|| {
+        "Failed to connect to daemon. Is ebpf-assistd running?"
+    })?;
+
+    let response = client
+        .request(Request::MapRead {
+            id: ProgramId(id),
+            map_name: map_name.to_string(),
+            key: key.map(String::from),
+        })
+        .await?;
+
+    match response {
+        Response::MapEntries { map_name, entries } => {
+            if json_output {
+                let entry_info: Vec<_> = entries
+                    .iter()
+                    .map(|e| {
+                        let mut obj = json!({
+                            "key": e.key,
+                            "value": e.value
+                        });
+                        if let Some(v) = e.value_u64 {
+                            obj["value_u64"] = json!(v);
+                        }
+                        if let Some(ref s) = e.value_str {
+                            obj["value_str"] = json!(s);
+                        }
+                        obj
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "map_name": map_name,
+                    "entries": entry_info
+                }))?);
+            } else if entries.is_empty() {
+                println!("Map '{}' is empty", map_name);
+            } else {
+                println!("Map '{}' ({} entries):", map_name, entries.len());
+                println!("{:<20} {:<20} {}", "KEY", "VALUE (hex)", "VALUE (dec)");
+                println!("{}", "-".repeat(60));
+                for e in entries {
+                    let dec = e.value_u64.map(|v| v.to_string()).unwrap_or_default();
+                    println!("{:<20} {:<20} {}", e.key, e.value, dec);
+                }
+            }
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "success": false,
+                    "error": message,
+                    "code": format!("{:?}", code)
+                }))?);
+                std::process::exit(1);
+            } else {
+                bail!("{}", improve_error(code, &message));
+            }
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}
+
+/// Write to a map.
+pub async fn map_write(id: u32, map_name: &str, key: &str, value: &str, json_output: bool) -> Result<()> {
+    let mut client = Client::connect().await.with_context(|| {
+        "Failed to connect to daemon. Is ebpf-assistd running?"
+    })?;
+
+    let response = client
+        .request(Request::MapWrite {
+            id: ProgramId(id),
+            map_name: map_name.to_string(),
+            key: key.to_string(),
+            value: value.to_string(),
+        })
+        .await?;
+
+    match response {
+        Response::MapWritten { map_name, key } => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "success": true,
+                    "map_name": map_name,
+                    "key": key
+                }))?);
+            } else {
+                println!("Wrote to map '{}' key '{}'", map_name, key);
+            }
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "success": false,
+                    "error": message,
+                    "code": format!("{:?}", code)
+                }))?);
+                std::process::exit(1);
+            } else {
+                bail!("{}", improve_error(code, &message));
+            }
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}
+
+/// Delete a map entry.
+pub async fn map_delete(id: u32, map_name: &str, key: &str, json_output: bool) -> Result<()> {
+    let mut client = Client::connect().await.with_context(|| {
+        "Failed to connect to daemon. Is ebpf-assistd running?"
+    })?;
+
+    let response = client
+        .request(Request::MapDelete {
+            id: ProgramId(id),
+            map_name: map_name.to_string(),
+            key: key.to_string(),
+        })
+        .await?;
+
+    match response {
+        Response::MapDeleted { map_name, key } => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "success": true,
+                    "map_name": map_name,
+                    "key": key
+                }))?);
+            } else {
+                println!("Deleted from map '{}' key '{}'", map_name, key);
+            }
+            Ok(())
+        }
+        Response::Error { message, code } => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "success": false,
+                    "error": message,
+                    "code": format!("{:?}", code)
+                }))?);
+                std::process::exit(1);
+            } else {
+                bail!("{}", improve_error(code, &message));
+            }
+        }
+        _ => bail!("Unexpected response from daemon"),
+    }
+}

@@ -29,11 +29,6 @@ pub async fn run(cmd: TriggerCommands) -> Result<()> {
 pub async fn output(cmd: OutputCommands) -> Result<()> {
     match cmd {
         OutputCommands::Trace { lines, timeout } => read_trace_pipe(lines, timeout),
-        OutputCommands::Map { name, format } => {
-            // Future feature
-            println!("Map reading not yet implemented: {} (format: {})", name, format);
-            Ok(())
-        }
     }
 }
 

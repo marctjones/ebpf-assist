@@ -164,14 +164,14 @@ fi
 # Test tools/list
 TOOLS_RESP=$(echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | $MCP 2>/dev/null)
 TOOL_COUNT=$(echo "$TOOLS_RESP" | jq '.result.tools | length')
-if [[ "$TOOL_COUNT" -eq 11 ]]; then
-    pass "MCP tools/list (11 tools)"
+if [[ "$TOOL_COUNT" -eq 15 ]]; then
+    pass "MCP tools/list (15 tools)"
 else
-    fail "MCP tools/list" "Expected 11 tools, got $TOOL_COUNT"
+    fail "MCP tools/list" "Expected 15 tools, got $TOOL_COUNT"
 fi
 
 # Check each tool exists
-EXPECTED_TOOLS="ebpf_new ebpf_compile ebpf_load ebpf_unload ebpf_attach ebpf_detach ebpf_list ebpf_status ebpf_unlock ebpf_trigger ebpf_trace"
+EXPECTED_TOOLS="ebpf_new ebpf_compile ebpf_load ebpf_unload ebpf_attach ebpf_detach ebpf_list ebpf_status ebpf_unlock ebpf_trigger ebpf_trace ebpf_map_list ebpf_map_read ebpf_map_write ebpf_map_delete"
 for tool in $EXPECTED_TOOLS; do
     if echo "$TOOLS_RESP" | jq -e ".result.tools[] | select(.name == \"$tool\")" >/dev/null 2>&1; then
         pass "MCP tool: $tool"

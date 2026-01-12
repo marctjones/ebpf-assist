@@ -107,6 +107,53 @@ pub struct ProgramInfo {
     pub attach_point: Option<String>,
 }
 
+/// Types of BPF maps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapType {
+    Hash,
+    Array,
+    PerCpuHash,
+    PerCpuArray,
+    PerfEventArray,
+    RingBuf,
+    HashMap,
+    LruHash,
+    LpmTrie,
+    Stack,
+    Queue,
+    Unknown,
+}
+
+/// Information about a BPF map.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapInfo {
+    /// Map name from the eBPF object.
+    pub name: String,
+    /// Type of the map.
+    pub map_type: MapType,
+    /// Size of keys in bytes.
+    pub key_size: u32,
+    /// Size of values in bytes.
+    pub value_size: u32,
+    /// Maximum number of entries.
+    pub max_entries: u32,
+}
+
+/// A map entry (key-value pair).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapEntry {
+    /// Key as hex string.
+    pub key: String,
+    /// Value as hex string.
+    pub value: String,
+    /// Optional: value interpreted as various types.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_u64: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_str: Option<String>,
+}
+
 /// Request from CLI to daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -152,6 +199,38 @@ pub enum Request {
 
     /// Check authorization status without triggering prompt.
     AuthStatus,
+
+    /// List maps for a loaded program.
+    MapList {
+        id: ProgramId,
+    },
+
+    /// Read a map entry or dump all entries.
+    MapRead {
+        id: ProgramId,
+        map_name: String,
+        /// Optional key (hex string). If None, dump all entries.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+    },
+
+    /// Write a map entry.
+    MapWrite {
+        id: ProgramId,
+        map_name: String,
+        /// Key as hex string.
+        key: String,
+        /// Value as hex string.
+        value: String,
+    },
+
+    /// Delete a map entry.
+    MapDelete {
+        id: ProgramId,
+        map_name: String,
+        /// Key as hex string.
+        key: String,
+    },
 }
 
 /// Response from daemon to CLI.
@@ -219,6 +298,29 @@ pub enum Response {
         message: String,
         code: ErrorCode,
     },
+
+    /// List of maps for a program.
+    Maps {
+        maps: Vec<MapInfo>,
+    },
+
+    /// Map entries read result.
+    MapEntries {
+        map_name: String,
+        entries: Vec<MapEntry>,
+    },
+
+    /// Map write success.
+    MapWritten {
+        map_name: String,
+        key: String,
+    },
+
+    /// Map delete success.
+    MapDeleted {
+        map_name: String,
+        key: String,
+    },
 }
 
 /// Error codes for structured error handling.
@@ -249,6 +351,12 @@ pub enum ErrorCode {
     AuthDenied,
     /// Policy violation (program type not allowed).
     PolicyViolation,
+    /// Map not found in program.
+    MapNotFound,
+    /// Invalid key format.
+    InvalidKey,
+    /// Invalid value format.
+    InvalidValue,
 }
 
 /// Default socket path for the daemon.

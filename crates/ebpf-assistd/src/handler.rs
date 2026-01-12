@@ -208,6 +208,64 @@ pub async fn handle_request(state: Arc<Mutex<State>>, request: Request) -> Respo
                 expires_in_secs: 0,
             }
         }
+
+        Request::MapList { id } => {
+            let state = state.lock().await;
+            match state.loader.list_maps(id) {
+                Ok(maps) => {
+                    debug!("Listed {} maps for program {:?}", maps.len(), id);
+                    Response::Maps { maps }
+                }
+                Err(e) => {
+                    error!("Failed to list maps: {}", e);
+                    error_response(&e)
+                }
+            }
+        }
+
+        Request::MapRead { id, map_name, key } => {
+            let state = state.lock().await;
+            match state.loader.read_map(id, &map_name, key.as_deref()) {
+                Ok(entries) => {
+                    debug!("Read {} entries from map {}", entries.len(), map_name);
+                    Response::MapEntries { map_name, entries }
+                }
+                Err(e) => {
+                    error!("Failed to read map: {}", e);
+                    error_response(&e)
+                }
+            }
+        }
+
+        Request::MapWrite { id, map_name, key, value } => {
+            // Map writes could be considered privileged operations
+            // For now, allow without auth since the program was already loaded with auth
+            let mut state = state.lock().await;
+            match state.loader.write_map(id, &map_name, &key, &value) {
+                Ok(()) => {
+                    info!("Wrote to map {} key {}", map_name, key);
+                    Response::MapWritten { map_name, key }
+                }
+                Err(e) => {
+                    error!("Failed to write map: {}", e);
+                    error_response(&e)
+                }
+            }
+        }
+
+        Request::MapDelete { id, map_name, key } => {
+            let mut state = state.lock().await;
+            match state.loader.delete_map_entry(id, &map_name, &key) {
+                Ok(()) => {
+                    info!("Deleted from map {} key {}", map_name, key);
+                    Response::MapDeleted { map_name, key }
+                }
+                Err(e) => {
+                    error!("Failed to delete map entry: {}", e);
+                    error_response(&e)
+                }
+            }
+        }
     }
 }
 
@@ -248,6 +306,14 @@ fn error_response(e: &anyhow::Error) -> Response {
     let message = e.to_string();
     let code = if message.contains("Policy violation") {
         ErrorCode::PolicyViolation
+    } else if message.contains("Map not found") {
+        ErrorCode::MapNotFound
+    } else if message.contains("Invalid") && message.contains("key") {
+        ErrorCode::InvalidKey
+    } else if message.contains("Invalid") && message.contains("value") {
+        ErrorCode::InvalidValue
+    } else if message.contains("Program not found") {
+        ErrorCode::ProgramNotFound
     } else if message.contains("not found") || message.contains("No such file") {
         ErrorCode::NotFound
     } else if message.contains("Permission") || message.contains("Capability") {

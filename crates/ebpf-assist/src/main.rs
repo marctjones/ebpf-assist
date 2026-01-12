@@ -130,6 +130,10 @@ enum Commands {
     /// Read output from eBPF programs (trace_pipe, maps, etc.)
     #[command(subcommand)]
     Output(OutputCommands),
+
+    /// Manage BPF maps for loaded programs
+    #[command(subcommand)]
+    Map(MapCommands),
 }
 
 #[derive(Subcommand)]
@@ -190,15 +194,54 @@ enum OutputCommands {
         #[arg(short, long, default_value = "5")]
         timeout: u64,
     },
+}
 
-    /// Dump a BPF map (future feature)
-    Map {
-        /// Map name or ID
+#[derive(Subcommand)]
+enum MapCommands {
+    /// List maps for a loaded program
+    List {
+        /// Program ID
+        id: u32,
+    },
+
+    /// Read map entries
+    Read {
+        /// Program ID
+        id: u32,
+
+        /// Map name
         name: String,
 
-        /// Output format (json, table)
-        #[arg(short, long, default_value = "table")]
-        format: String,
+        /// Optional: specific key to read (hex or decimal)
+        #[arg(short, long)]
+        key: Option<String>,
+    },
+
+    /// Write to a map
+    Write {
+        /// Program ID
+        id: u32,
+
+        /// Map name
+        name: String,
+
+        /// Key (hex with 0x prefix or decimal)
+        key: String,
+
+        /// Value (hex with 0x prefix or decimal)
+        value: String,
+    },
+
+    /// Delete a map entry
+    Delete {
+        /// Program ID
+        id: u32,
+
+        /// Map name
+        name: String,
+
+        /// Key (hex with 0x prefix or decimal)
+        key: String,
     },
 }
 
@@ -314,5 +357,17 @@ async fn main() -> Result<()> {
         Commands::Auth => commands::auth_status(cli.json).await,
         Commands::Trigger(cmd) => trigger::run(cmd).await,
         Commands::Output(cmd) => trigger::output(cmd).await,
+        Commands::Map(cmd) => match cmd {
+            MapCommands::List { id } => commands::map_list(id, cli.json).await,
+            MapCommands::Read { id, name, key } => {
+                commands::map_read(id, &name, key.as_deref(), cli.json).await
+            }
+            MapCommands::Write { id, name, key, value } => {
+                commands::map_write(id, &name, &key, &value, cli.json).await
+            }
+            MapCommands::Delete { id, name, key } => {
+                commands::map_delete(id, &name, &key, cli.json).await
+            }
+        },
     }
 }
