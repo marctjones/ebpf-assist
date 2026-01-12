@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libbpf-dev
+
+      - name: Build release binaries
+        run: cargo build --release --all
+
+      - name: Create tarball
+        run: |
+          mkdir -p dist
+          cp target/release/ebpf-assist dist/
+          cp target/release/ebpf-assistd dist/
+          cp target/release/ebpf-assist-mcp dist/
+          cp README.md LICENSE-MIT LICENSE-APACHE dist/ 2>/dev/null || true
+          tar -czvf ebpf-assist-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ebpf-assist-${{ github.ref_name }}-linux-x86_64.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

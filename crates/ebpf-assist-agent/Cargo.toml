@@ -1,0 +1,57 @@
+[package]
+name = "ebpf-assist-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Guest agent for ebpf-assist MicroVM - runs inside Firecracker VM"
+readme = "../../README.md"
+keywords = ["ebpf", "guest-agent", "microvm"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "ebpf-assist-agent"
+path = "src/main.rs"
+
+[dependencies]
+ebpf-assist-common = { path = "../ebpf-assist-common" }
+
+# Reuse protocol types from VM crate (compile separately to avoid pulling in host deps)
+# We duplicate the protocol module here for the agent since it needs to be statically linked
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# eBPF
+aya = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# vsock for host communication
+tokio-vsock = "0.5"
+
+# Time
+chrono = "0.4"
+
+# System calls
+libc = "0.2"
+
+[profile.release]
+# Optimize for size since this runs in a MicroVM
+opt-level = "s"
+lto = true
+strip = true
+
+# For musl static builds
+[target.x86_64-unknown-linux-musl]
+# Link statically with musl

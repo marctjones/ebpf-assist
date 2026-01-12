@@ -1,0 +1,51 @@
+[package]
+name = "ebpf-assist-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MicroVM management for ebpf-assist - Firecracker-based isolation"
+readme = "../../README.md"
+keywords = ["ebpf", "firecracker", "microvm", "isolation"]
+categories = ["development-tools", "virtualization"]
+
+[dependencies]
+ebpf-assist-common = { path = "../ebpf-assist-common" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# vsock communication
+tokio-vsock = "0.5"
+
+# Process management
+nix = { version = "0.29", features = ["process", "signal"] }
+
+# Paths and utilities
+dirs = "5"
+which = "7"
+
+# UUID for VM IDs
+uuid = { version = "1", features = ["v4"] }
+
+# HTTP client for Firecracker API
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
+http-body-util = "0.1"
+
+# Unix socket for Firecracker API
+hyperlocal = "0.9"
+
+[dev-dependencies]
+tempfile = { workspace = true }
