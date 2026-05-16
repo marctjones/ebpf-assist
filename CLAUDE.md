@@ -17,7 +17,10 @@ idlergear context
 **Use instead:**
 - `idlergear task create "..."` - Create actionable tasks
 - `idlergear note create "..."` - Capture quick thoughts
-- `idlergear reference add "..."` - Store permanent documentation
+- `idlergear explore create "..."` - Research questions
+- `idlergear vision show` - Check project goals
+
+See AGENTS.md for full command reference.
 
 ## Key Design Decisions
 

@@ -34,3 +34,13 @@ bzImage
 # Added by cargo
 
 /target
+
+# IdlerGear daemon files (don't commit)
+.idlergear/daemon.sock
+.idlergear/daemon.pid
+.idlergear/sync/
+
+# IdlerGear secrets (sensitive - don't commit)
+.idlergear/secrets/
+.idlergear/logs/
+.idlergear/graph.db
