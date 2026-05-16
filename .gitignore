@@ -44,3 +44,4 @@ bzImage
 .idlergear/secrets/
 .idlergear/logs/
 .idlergear/graph.db
+.idlergear.retired/
